@@ -1,0 +1,90 @@
+<!--
+  Installer dialogs. Built from WixUI's standard dialogs plus two of our own:
+    SsimInstallDlg  welcome + what gets installed; its Install button runs the HidHide installer first
+    SsimRemoveDlg   shown when SSIM is opened from Settings > Apps; offers to delete the settings too
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Fragment>
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SSIM" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#SsimTrayExe]" />
+    <CustomAction Id="LaunchSsim" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+
+    <UI Id="SSIM_UI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="ExitDialog" />
+
+      <!-- ============================== Install ============================== -->
+      <Dialog Id="SsimInstallDlg" Width="370" Height="270" Title="!(loc.WelcomeDlg_Title)">
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" TabSkip="no" Text="!(loc.WelcomeDlgBitmap)" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="40" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Bigger}Simple Switch Input Manager" />
+        <Control Id="Description" Type="Text" X="135" Y="62" Width="220" Height="165" Transparent="yes" NoPrefix="yes"
+                 Text="Makes Nintendo Switch 1 and Switch 2 controllers work in Windows games as DirectInput, XInput or DualSense controllers.&#13;&#10;&#13;&#10;Setup installs:&#13;&#10;• the SSIM service and tray app&#13;&#10;• a virtual controller driver (WinUHid), signed on this PC with a certificate made only for it. Its private key is deleted right away, so it can never sign anything else.&#13;&#10;• HidHide by Nefarius, if it isn't installed yet, so games see each controller only once. Windows will ask for permission for it." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="156" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUIBack)" />
+        <Control Id="Install" Type="PushButton" X="212" Y="243" Width="80" Height="17" Default="yes" ElevationShield="yes" Text="!(loc.WelcomeEulaDlgInstall)">
+          <Publish Event="DoAction" Value="InstallHidHide" Condition="NOT HIDHIDE_PRESENT" Order="1" />
+          <Publish Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                   Value="HidHide was installed. Restart Windows once so it can hide the raw controllers from games."
+                   Condition="SSIM_HIDHIDE = &quot;reboot&quot;" Order="2" />
+          <Publish Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                   Value="HidHide was not installed, so games will see each controller twice. You can install it later from github.com/nefarius/HidHide and restart SSIM."
+                   Condition="SSIM_HIDHIDE = &quot;declined&quot; OR SSIM_HIDHIDE = &quot;failed&quot;" Order="3" />
+          <Publish Event="EndDialog" Value="Return" Condition="OutOfDiskSpace &lt;&gt; 1" Order="4" />
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg"
+                   Condition="OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST=&quot;P&quot; OR NOT PROMPTROLLBACKCOST)" Order="5" />
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg"
+                   Condition="(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST=&quot;F&quot;)" Order="6" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================== Remove ============================== -->
+      <Dialog Id="SsimRemoveDlg" Width="370" Height="270" Title="!(loc.WelcomeDlg_Title)">
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" TabSkip="no" Text="!(loc.WelcomeDlgBitmap)" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="40" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Bigger}Remove Simple Switch Input Manager" />
+        <Control Id="Description" Type="Text" X="135" Y="62" Width="220" Height="120" Transparent="yes" NoPrefix="yes"
+                 Text="This removes the SSIM service, the tray app, the virtual controller driver and the certificate that signed it.&#13;&#10;&#13;&#10;HidHide stays installed, because other programs may use it too. If you don't need it, remove &quot;HidHide&quot; from Settings &gt; Apps afterwards." />
+        <Control Id="RemoveSettings" Type="CheckBox" X="135" Y="190" Width="220" Height="30"
+                 Property="REMOVESETTINGS" CheckBoxValue="1"
+                 Text="Also delete my SSIM settings (C:\ProgramData\SSIM)" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="156" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUIBack)" />
+        <Control Id="Remove" Type="PushButton" X="212" Y="243" Width="80" Height="17" Default="yes" ElevationShield="yes" Text="!(loc.VerifyReadyDlgRemove)">
+          <Publish Event="Remove" Value="ALL" Order="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSsim"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" Order="1" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <InstallUISequence>
+        <Show Dialog="SsimInstallDlg" Before="ProgressDlg" Condition="NOT Installed" />
+        <Show Dialog="SsimRemoveDlg" Before="ProgressDlg" Condition="Installed AND NOT RESUME AND NOT Preselected" />
+      </InstallUISequence>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

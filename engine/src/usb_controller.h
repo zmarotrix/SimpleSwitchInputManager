@@ -20,7 +20,7 @@ std::vector<DeviceInfo> FindControllers();
 // dedicated high-priority thread.
 class UsbController : public PadSource, public RumbleSink {
 public:
-    UsbController(int slot, DeviceInfo info, bool hide, OutputMode mode);
+    UsbController(DeviceInfo info, bool hide);
     ~UsbController() override;
 
     void Start() override;
@@ -32,10 +32,8 @@ public:
 private:
     void Run();
 
-    int m_slot;
     DeviceInfo m_info;
     bool m_hide;
-    OutputMode m_mode;
     HANDLE m_hid = INVALID_HANDLE_VALUE;
     HANDLE m_writeEvent;
     std::thread m_thread;

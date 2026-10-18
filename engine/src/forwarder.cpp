@@ -38,10 +38,9 @@ void InputForwarder::GyroBias::Add(const int16_t g[3])
     memset(m_sq, 0, sizeof(m_sq));
 }
 
-bool InputForwarder::Start(int slot, bool bluetooth, const StickCal& left, const StickCal& right,
-                           int reportsPerSecond, OutputMode mode, RumbleSink* rumble)
+void InputForwarder::Start(bool bluetooth, const StickCal& left, const StickCal& right, int reportsPerSecond,
+                           RumbleSink* rumble)
 {
-    m_slot = slot;
     m_bluetooth = bluetooth;
     m_left = left;
     m_right = right;
@@ -50,28 +49,49 @@ bool InputForwarder::Start(int slot, bool bluetooth, const StickCal& left, const
     m_imuClock = 0;
     m_lastQpc = {};
     QueryPerformanceFrequency(&m_qpf);
+    // Refresh a little faster than the link delivers so the actuators never starve.
+    if (rumble) m_rumble.Start(rumble, !bluetooth, bluetooth ? 15 : 8);
+    m_started = true;
+}
 
-    if (rumble) {
-        // Refresh a little faster than the link delivers so the actuators never starve.
-        m_rumble.Start(rumble, !bluetooth, bluetooth ? 15 : 8);
-    }
+bool InputForwarder::Configure(int slot, OutputMode mode)
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    if (m_out) m_out->Destroy();
+    m_out.reset();
+    m_rumble.Set({});
+    if (m_slot && m_slot != slot) Dsu::Disconnect(m_slot - 1);
+    m_slot = slot;
+    if (!slot) return false;
     m_out = CreateOutput(mode);
     m_out->OnRumble([this](const RumbleCommand& c) { m_rumble.Set(c); });
-    if (!m_out->Create(slot)) {
+    m_rumble.SetSafetyTimeout(m_out->RumbleStopsWithApp() ? 0 : m_safetySeconds);
+    if (!m_out->Create(slot - 1)) {
         m_out.reset();
         return false;
     }
     return true;
 }
 
+void InputForwarder::SetRumbleSafety(int seconds)
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    m_safetySeconds = seconds;
+    m_rumble.SetSafetyTimeout(m_out && m_out->RumbleStopsWithApp() ? 0 : seconds);
+}
+
 void InputForwarder::Stop()
 {
-    if (m_slot < 0) return;
-    if (m_out) m_out->Destroy();  // no more rumble callbacks after this
-    m_out.reset();
+    if (!m_started) return;
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        if (m_out) m_out->Destroy();  // no more rumble callbacks after this
+        m_out.reset();
+        if (m_slot) Dsu::Disconnect(m_slot - 1);
+        m_slot = 0;
+    }
     m_rumble.Stop();
-    Dsu::Disconnect(m_slot);
-    m_slot = -1;
+    m_started = false;
 }
 
 void InputForwarder::Process(const uint8_t* r)
@@ -121,7 +141,10 @@ void InputForwarder::Process(const uint8_t* r)
     in.batteryPercent = std::clamp(((int)mv - 3300) * 100 / (4150 - 3300), 0, 100);
     in.wired = !m_bluetooth;
 
+    m_battery = in.batteryPercent;
+    std::lock_guard<std::mutex> lock(m_lock);
     if (m_out) m_out->Submit(in);
+    if (!m_slot) return;
 
     MotionState ms;
     ms.connected = true;
@@ -132,5 +155,5 @@ void InputForwarder::Process(const uint8_t* r)
     memcpy(ms.accel, in.accel, sizeof(ms.accel));
     memcpy(ms.gyro, in.gyro, sizeof(ms.gyro));
     ms.battery = DsuBattery(in.batteryPercent);
-    Dsu::Update(m_slot, ms);
+    Dsu::Update(m_slot - 1, ms);  // DSU has slots 0..3; Update ignores the rest
 }

@@ -1,6 +1,7 @@
 #include "usb_controller.h"
 
 #include "commands.h"
+#include "session.h"
 #include "hidhide.h"
 
 #include <initguid.h>
@@ -157,7 +158,19 @@ public:
     }
 
     using CommandTransport::Send;
+    // Right after a Bluetooth -> USB handover the controller ignores commands for a
+    // moment, so retry a few times before giving up.
     bool Send(uint8_t cmd, uint8_t sub, const uint8_t* data, uint8_t len, std::vector<uint8_t>* reply) override
+    {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            if (SendOnce(cmd, sub, data, len, reply)) return true;
+            Sleep(150);
+        }
+        return false;
+    }
+
+private:
+    bool SendOnce(uint8_t cmd, uint8_t sub, const uint8_t* data, uint8_t len, std::vector<uint8_t>* reply)
     {
         uint8_t pkt[64] = {cmd, 0x91, 0x00 /* USB */, sub, 0x00, len, 0x00, 0x00};
         memcpy(pkt + 8, data, len);
@@ -171,7 +184,6 @@ public:
         return true;
     }
 
-private:
     HANDLE m_file = INVALID_HANDLE_VALUE;
     WINUSB_INTERFACE_HANDLE m_usb = nullptr;
     UCHAR m_in = 0, m_out = 0;
@@ -181,11 +193,9 @@ private:
 // UsbController
 // ---------------------------------------------------------------------------
 
-UsbController::UsbController(int slot, DeviceInfo info, bool hide, OutputMode mode)
-    : m_slot(slot),
-      m_info(std::move(info)),
+UsbController::UsbController(DeviceInfo info, bool hide)
+    : m_info(std::move(info)),
       m_hide(hide),
-      m_mode(mode),
       m_writeEvent(CreateEventW(nullptr, TRUE, FALSE, nullptr)),
       m_stop(CreateEventW(nullptr, TRUE, FALSE, nullptr))
 {
@@ -235,7 +245,7 @@ void UsbController::Stop()
 void UsbController::Run()
 {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-    Log("Controller %d connected over USB", m_slot + 1);
+    Log("Controller connected over USB");
 
     // 1. Wake the controller and switch it to the full report (buttons, sticks, motion, battery).
     UsbCommandChannel ch;
@@ -247,11 +257,8 @@ void UsbController::Run()
         Log("  wake-up command failed");
         return;
     }
-    StickCal leftCal = ReadStickCal(ch, kCalLeftUser, kCalLeftFactory, "Left");
-    StickCal rightCal = ReadStickCal(ch, kCalRightUser, kCalRightFactory, "Right");
     bool ok = ch.Send(0x0C, 0x02, {kFeatureMask, 0, 0, 0}) && ch.Send(0x0C, 0x04, {kFeatureMask, 0, 0, 0}) &&
               ch.Send(0x03, 0x0A, {0x05, 0, 0, 0});
-    ch.SetPlayerLed(m_slot);
     if (!ok) Log("  feature setup failed; motion may be unavailable");
 
     // 2. Open the controller's own HID interface for its 250 Hz input stream.
@@ -269,12 +276,8 @@ void UsbController::Run()
     }
 
     m_hid = hid;
-    InputForwarder fwd;
-    if (fwd.Start(m_slot, false, leftCal, rightCal, 250, m_mode, this)) {
-        Log("  virtual %s pad %d ready", OutputModeName(m_mode), m_slot + 1);
-    } else {
-        Log("  could not create the virtual pad");
-    }
+    SwitchSession session(false, ch, this);
+    session.Begin(250);
 
     // 3. Forward every report the moment it arrives.
     OVERLAPPED ov = {};
@@ -285,7 +288,7 @@ void UsbController::Run()
         DWORD got = 0;
         ResetEvent(ov.hEvent);
         if (!ReadFile(hid, buf, sizeof(buf), nullptr, &ov) && GetLastError() != ERROR_IO_PENDING) {
-            Log("Controller %d disconnected (%lu)", m_slot + 1, GetLastError());
+            Log("USB controller disconnected (%lu)", GetLastError());
             break;
         }
         if (WaitForMultipleObjects(2, waits, FALSE, INFINITE) != WAIT_OBJECT_0) {
@@ -294,14 +297,14 @@ void UsbController::Run()
             break;
         }
         if (!GetOverlappedResult(hid, &ov, &got, FALSE)) {
-            Log("Controller %d disconnected (%lu)", m_slot + 1, GetLastError());
+            Log("USB controller disconnected (%lu)", GetLastError());
             break;
         }
-        if (got == 64 && buf[0] == 0x05) fwd.Process(buf + 1);
+        if (got == 64 && buf[0] == 0x05) session.Process(buf + 1);
     }
 
     CloseHandle(ov.hEvent);
-    fwd.Stop();  // stops rumble before the handle goes away
+    session.End();  // stops rumble before the handle goes away
     m_hid = INVALID_HANDLE_VALUE;
     if (m_hide) HidHide::Unhide(m_info.hidInstanceId);
     CloseHandle(hid);

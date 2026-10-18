@@ -36,6 +36,8 @@ public:
         }
     }
 
+    bool RumbleStopsWithApp() const override { return true; }
+
     bool Submit(const PadInput& in) override
     {
         if (!m_pad) return false;

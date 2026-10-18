@@ -22,7 +22,7 @@ void KeepWatcherAlive();  // restarts the watcher if Bluetooth was turned off an
 // Owns one controller connected over Bluetooth LE.
 class BleController : public PadSource, public RumbleSink {
 public:
-    BleController(int slot, uint64_t address, bool pairingMode, bool allowPairing, OutputMode mode);
+    BleController(uint64_t address, bool pairingMode, bool allowPairing);
     ~BleController() override;
 
     void Start() override;
@@ -36,11 +36,9 @@ public:
 private:
     void Run();
 
-    int m_slot;
     uint64_t m_address;
     bool m_pairingMode;
     bool m_allowPairing;
-    OutputMode m_mode;
     struct Vibration;
     std::unique_ptr<Vibration> m_vibration;  // GATT characteristic, valid while connected
     std::wstring m_key;

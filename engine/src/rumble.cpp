@@ -60,6 +60,7 @@ void RumbleScheduler::Set(const RumbleCommand& c)
 {
     {
         std::lock_guard<std::mutex> lock(m_lock);
+        m_lastGameUpdate = Clock::now();  // even an unchanged command proves the game is alive
         if (c == m_cmd) return;
         m_cmd = c;
         m_changed = true;
@@ -73,6 +74,23 @@ void RumbleScheduler::SetStrength(float s)
     m_strength = std::clamp(s, 0.f, 1.f);
 }
 
+void RumbleScheduler::SetSafetyTimeout(int seconds)
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    m_safetySeconds = std::max(0, seconds);
+}
+
+void RumbleScheduler::Pulse(float level, int ms)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        m_pulseLevel = std::clamp(level, 0.f, 1.f);
+        m_pulseUntil = Clock::now() + std::chrono::milliseconds(ms);
+        m_changed = true;
+    }
+    m_cv.notify_all();
+}
+
 void RumbleScheduler::Run()
 {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
@@ -80,7 +98,7 @@ void RumbleScheduler::Run()
     bool wasActive = false;
     std::unique_lock<std::mutex> lock(m_lock);
     for (;;) {
-        // Idle: sleep until a game changes something. Active: refresh every period,
+        // Idle: sleep until something changes. Active: refresh every period,
         // since each block only covers a few milliseconds of vibration.
         if (wasActive) {
             m_cv.wait_for(lock, std::chrono::milliseconds(m_periodMs), [this] { return m_quit || m_changed; });
@@ -89,11 +107,22 @@ void RumbleScheduler::Run()
         }
         if (m_quit) break;
         m_changed = false;
+        auto now = Clock::now();
+
+        if (m_cmd.Active() && m_safetySeconds > 0 &&
+            now - m_lastGameUpdate > std::chrono::seconds(m_safetySeconds)) {
+            Log("Rumble: no update from the game for %d s, stopping it", m_safetySeconds);
+            m_cmd = {};
+        }
         RumbleCommand c = m_cmd;
         float s = m_strength;
+        c.lowL *= s; c.highL *= s; c.lowR *= s; c.highR *= s;
+        if (now < m_pulseUntil) {
+            c.lowL = c.lowR = std::max(c.lowL, m_pulseLevel);
+            c.highL = c.highR = std::max(c.highL, m_pulseLevel);
+        }
         lock.unlock();
 
-        c.lowL *= s; c.highL *= s; c.lowR *= s; c.highR *= s;
         uint8_t l[16], r[16];
         enc.Encode(c, l, r);
         m_sink->SendRumble(l, r);

@@ -16,12 +16,14 @@ if not exist bin mkdir bin
 if not exist obj mkdir obj
 
 cl /nologo /std:c++20 /O2 /EHsc /W4 /wd4100 /MT /DUNICODE /D_UNICODE ^
-   /I "%WINUHID%\WinUHid" /I "%WINUHID%\WinUHidDevs" /Fo"obj\\" /Fe"bin\Switch2Pro.exe" ^
+   /I "%WINUHID%\WinUHid" /I "%WINUHID%\WinUHidDevs" /I "%~dp0..\third_party" /Fo"obj\\" /Fe"bin\Switch2Pro.exe" ^
    src\main.cpp src\usb_controller.cpp src\ble_controller.cpp src\forwarder.cpp src\rumble.cpp ^
+   src\session.cpp src\hub.cpp src\config.cpp src\ipc.cpp ^
    src\output_dinput.cpp src\output_xinput.cpp src\output_dualsense.cpp ^
    src\hidhide.cpp src\dsu.cpp src\log.cpp ^
    /link /LIBPATH:"%WINUHID_LIB%" /LIBPATH:"%WINUHIDDEVS_LIB%" WinUHid.lib WinUHidDevs.lib ^
-   setupapi.lib cfgmgr32.lib newdev.lib hid.lib winusb.lib ws2_32.lib ole32.lib advapi32.lib windowsapp.lib ^
+   setupapi.lib cfgmgr32.lib newdev.lib hid.lib winusb.lib ws2_32.lib ole32.lib advapi32.lib shell32.lib ^
+   windowsapp.lib ^
    || exit /b 1
 
 copy /y "%WINUHID_LIB%\WinUHid.dll" bin\ >nul

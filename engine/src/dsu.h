@@ -18,7 +18,7 @@ struct MotionState {
 // Yuzu family). Sends motion straight from the controller's 250 Hz stream.
 namespace Dsu {
 
-bool Start();
+bool Start(uint16_t port);
 void Stop();
 void Update(int slot, const MotionState& s);  // call from the controller thread
 void Disconnect(int slot);

@@ -20,6 +20,9 @@ public:
     virtual bool Create(int slot) = 0;
     virtual void Destroy() = 0;
     virtual bool Submit(const PadInput& in) = 0;
+    // True if Windows itself stops this controller's rumble when the game exits
+    // (XInput does); otherwise the engine's safety cut-off guards against stuck rumble.
+    virtual bool RumbleStopsWithApp() const { return false; }
 
     // Called (from a driver thread) whenever a game changes rumble.
     void OnRumble(std::function<void(const RumbleCommand&)> handler) { m_rumble = std::move(handler); }

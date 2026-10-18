@@ -13,6 +13,8 @@
 #include "usb_controller.h"
 #include "dsu.h"
 #include "hidhide.h"
+#include "config.h"
+#include "ipc.h"
 #include "output.h"
 
 #include <initguid.h>
@@ -21,6 +23,7 @@
 #include <newdev.h>
 #include <setupapi.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,29 +44,20 @@ static DWORD CALLBACK OnHidArrival(HCMNOTIFICATION, PVOID ctx, CM_NOTIFY_ACTION 
     return ERROR_SUCCESS;
 }
 
-// Settings in HKLM\SOFTWARE\Switch2Pro (DWORD). Per-controller settings replace these in phase 2.
-static DWORD SettingValue(const wchar_t* name, DWORD fallback)
-{
-    DWORD v = fallback, size = sizeof(v);
-    RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Switch2Pro", name, RRF_RT_REG_DWORD, nullptr, &v, &size);
-    return v;
-}
-
-static bool Setting(const wchar_t* name)
-{
-    return SettingValue(name, 1) != 0;
-}
-
 static int RunLoop()
 {
     if (!WinUHidAvailable()) {
-        Log("The WinUHid driver is not installed or not running (error %lu). Run install.ps1 first.", GetLastError());
+        Log("The WinUHid driver is not installed or not running (error %lu). Run the installer first.", GetLastError());
         return 1;
     }
+    Config::Get().Load();
+    GlobalSettings settings = Config::Get().Global();
+
     bool hide = HidHide::Available() && HidHide::Prepare();
     Log(hide ? "HidHide active: the raw controller will be hidden from games"
              : "HidHide not installed: games will also see the raw controller");
-    Dsu::Start();
+    if (settings.dsu) Dsu::Start((uint16_t)settings.dsuPort);
+    Ipc::Start();
 
     HANDLE arrival = CreateEventW(nullptr, FALSE, TRUE, nullptr);
     CM_NOTIFY_FILTER filter = {};
@@ -76,11 +70,7 @@ static int RunLoop()
     // Bluetooth sightings arrive on a WinRT thread; the loop below acts on them.
     std::mutex sightLock;
     std::map<uint64_t, bool> sightings;  // address -> sync mode
-    bool bluetooth = Setting(L"EnableBluetooth");
-    OutputMode mode = (OutputMode)SettingValue(L"OutputMode", 0);
-    Log("Output mode: %s", OutputModeName(mode));
-    bool allowPairing = Setting(L"PairBluetooth");
-    if (bluetooth) {
+    if (settings.bluetooth) {
         Ble::StartWatcher([&](uint64_t address, bool pairingMode) {
             std::lock_guard<std::mutex> lock(sightLock);
             sightings[address] = pairingMode;
@@ -88,24 +78,19 @@ static int RunLoop()
         });
     }
 
-    std::unique_ptr<PadSource> slots[kMaxControllers];
+    // One entry per physical connection; sessions claim their own player slots.
+    std::vector<std::unique_ptr<PadSource>> sources;
     std::map<std::wstring, ULONGLONG> lastAttempt;  // don't hammer a controller that keeps failing
     HANDLE waits[2] = {g_stopEvent, arrival};
     Log("Waiting for Switch 2 Pro Controllers...");
 
     auto active = [&](const std::wstring& key) {
-        for (auto& s : slots)
-            if (s && _wcsicmp(s->Key().c_str(), key.c_str()) == 0) return true;
-        return false;
+        return std::any_of(sources.begin(), sources.end(),
+                           [&](auto& s) { return _wcsicmp(s->Key().c_str(), key.c_str()) == 0; });
     };
-    auto place = [&](auto make) {
-        for (int i = 0; i < kMaxControllers; i++) {
-            if (!slots[i]) {
-                slots[i] = make(i);
-                slots[i]->Start();
-                return;
-            }
-        }
+    auto add = [&](std::unique_ptr<PadSource> s) {
+        s->Start();
+        sources.push_back(std::move(s));
     };
 
     for (;;) {
@@ -113,11 +98,10 @@ static int RunLoop()
         DWORD w = WaitForMultipleObjects(2, waits, FALSE, 2000);
         if (w == WAIT_OBJECT_0) break;
 
-        for (auto& s : slots) {
-            if (s && s->Finished()) s.reset();
-        }
+        sources.erase(std::remove_if(sources.begin(), sources.end(), [](auto& s) { return s->Finished(); }),
+                      sources.end());
         for (auto& dev : FindControllers()) {
-            if (!active(dev.hidPath)) place([&](int i) { return std::make_unique<UsbController>(i, dev, hide, mode); });
+            if (!active(dev.hidPath)) add(std::make_unique<UsbController>(dev, hide));
         }
 
         std::map<uint64_t, bool> seen;
@@ -126,21 +110,21 @@ static int RunLoop()
             seen.swap(sightings);
         }
         ULONGLONG now = GetTickCount64();
+        bool allowPairing = Config::Get().Global().pairBluetooth;
         for (auto& [address, pairingMode] : seen) {
             std::wstring key = BleController::KeyFor(address);
             if (active(key) || now - lastAttempt[key] < 3000) continue;
             lastAttempt[key] = now;
-            bool pm = pairingMode;
-            uint64_t addr = address;
-            place([&](int i) { return std::make_unique<BleController>(i, addr, pm, allowPairing, mode); });
+            add(std::make_unique<BleController>(address, pairingMode, allowPairing));
         }
-        if (bluetooth) Ble::KeepWatcherAlive();
+        if (settings.bluetooth) Ble::KeepWatcherAlive();
     }
 
     Log("Stopping");
     Ble::StopWatcher();
     if (notify) CM_Unregister_Notification(notify);
-    for (auto& s : slots) s.reset();
+    sources.clear();
+    Ipc::Stop();
     Dsu::Stop();
     CloseHandle(arrival);
     return 0;

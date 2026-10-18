@@ -16,7 +16,6 @@
 
 namespace {
 
-constexpr uint16_t kPort = 26760;
 constexpr uint16_t kProtocolVersion = 1001;
 constexpr uint32_t kMsgVersion = 0x100000;
 constexpr uint32_t kMsgPorts = 0x100001;
@@ -201,7 +200,7 @@ void ServerThread()
 
 namespace Dsu {
 
-bool Start()
+bool Start(uint16_t port)
 {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;
@@ -209,10 +208,10 @@ bool Start()
     if (g_sock == INVALID_SOCKET) return false;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(kPort);
+    addr.sin_port = htons(port);
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
     if (bind(g_sock, (sockaddr*)&addr, sizeof(addr)) != 0) {
-        Log("DSU: port %u is in use (is another DSU server running?) - motion server disabled", kPort);
+        Log("DSU: port %u is in use (is another DSU server running?) - motion server disabled", port);
         closesocket(g_sock);
         g_sock = INVALID_SOCKET;
         return false;
@@ -223,7 +222,7 @@ bool Start()
     WSAIoctl(g_sock, _WSAIOW(IOC_VENDOR, 12), &off, sizeof(off), nullptr, 0, &ret, nullptr, nullptr);
     g_running = true;
     g_thread = std::thread(ServerThread);
-    Log("DSU motion server listening on 127.0.0.1:%u", kPort);
+    Log("DSU motion server listening on 127.0.0.1:%u", port);
     return true;
 }
 

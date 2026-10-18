@@ -2,6 +2,7 @@
 
 #include "pad_input.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -30,11 +31,17 @@ private:
 // Streams rumble to a controller while a game holds it on, then sends a stop.
 class RumbleScheduler {
 public:
+    using Clock = std::chrono::steady_clock;
+
     ~RumbleScheduler() { Stop(); }
     void Start(RumbleSink* sink, bool wired, int periodMs);
     void Stop();
-    void Set(const RumbleCommand& c);
-    void SetStrength(float s);  // 0..1 user scale
+    void Set(const RumbleCommand& c);  // from the game, via the virtual controller
+    void SetStrength(float s);         // 0..1 user scale
+    // Stops rumble a game has left on without touching it for this long (0 = never).
+    // Protects against games that crash or exit while rumbling.
+    void SetSafetyTimeout(int seconds);
+    void Pulse(float level, int ms);   // short buzz for "Identify"; does not change the game's state
 
 private:
     void Run();
@@ -46,6 +53,10 @@ private:
     std::mutex m_lock;
     std::condition_variable m_cv;
     RumbleCommand m_cmd;
+    Clock::time_point m_lastGameUpdate{};
+    Clock::time_point m_pulseUntil{};
+    float m_pulseLevel = 0;
+    int m_safetySeconds = 20;
     float m_strength = 1.0f;
     bool m_changed = false;
     bool m_quit = false;

@@ -1,6 +1,7 @@
 #include "ble_controller.h"
 
 #include "commands.h"
+#include "session.h"
 
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
 #include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
@@ -211,12 +212,10 @@ struct BleController::Vibration {
     GattCharacteristic ch{nullptr};
 };
 
-BleController::BleController(int slot, uint64_t address, bool pairingMode, bool allowPairing, OutputMode mode)
-    : m_slot(slot),
-      m_address(address),
+BleController::BleController(uint64_t address, bool pairingMode, bool allowPairing)
+    : m_address(address),
       m_pairingMode(pairingMode),
       m_allowPairing(allowPairing),
-      m_mode(mode),
       m_key(KeyFor(address)),
       m_stop(CreateEventW(nullptr, TRUE, FALSE, nullptr))
 {
@@ -265,11 +264,11 @@ void BleController::Stop()
 void BleController::Run()
 {
     EnsureApartment();
-    Log("Controller %d found over Bluetooth (%012llX)%s", m_slot + 1, m_address,
-        m_pairingMode ? ", sync mode" : "");
+    Log("Controller found over Bluetooth (%012llX)%s", m_address, m_pairingMode ? ", sync mode" : "");
 
     HANDLE disconnected = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    InputForwarder fwd;
+    std::unique_ptr<BleCommandChannel> ch;
+    std::unique_ptr<SwitchSession> session;
     BluetoothLEDevice dev{nullptr};
     GattCharacteristic input{nullptr};
     event_token inputToken{}, statusToken{};
@@ -283,8 +282,8 @@ void BleController::Run()
 
         // Hold the link open for the whole session (otherwise Windows may drop it
         // between GATT calls), then discover the controller's service.
-        auto session = GattSession::FromDeviceIdAsync(dev.BluetoothDeviceId()).get();
-        session.MaintainConnection(true);
+        auto gatt = GattSession::FromDeviceIdAsync(dev.BluetoothDeviceId()).get();
+        gatt.MaintainConnection(true);
         GattDeviceServicesResult services{nullptr};
         for (int attempt = 0; attempt < 4; attempt++) {
             auto mode = attempt < 2 ? BluetoothCacheMode::Uncached : BluetoothCacheMode::Cached;
@@ -317,47 +316,41 @@ void BleController::Run()
         // Ask Windows for its fastest connection interval (15 ms, about 65 reports/s).
         auto fast = dev.RequestPreferredConnectionParameters(BluetoothLEPreferredConnectionParameters::ThroughputOptimized());
 
-        BleCommandChannel ch(writes[1], notifies[2]);
-        if (!ch.Open()) throw hresult_error(E_FAIL, L"command channel");
+        ch = std::make_unique<BleCommandChannel>(writes[1], notifies[2]);
+        if (!ch->Open()) throw hresult_error(E_FAIL, L"command channel");
 
         // Same start-up sequence the console uses (via Switch2Connect), with the
         // full input report (buttons, sticks, motion, battery) selected.
-        ch.Send(0x03, 0x0D, {0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF});
-        ch.Send(0x07, 0x01, {});
-        ch.Send(0x16, 0x01, {});
-        ch.Send(0x15, 0x03, {0x00});
-        ch.Send(0x0C, 0x02, {kFeatureMask, 0, 0, 0});
-        ch.Send(0x11, 0x03, {});
-        ch.Send(0x0A, 0x08, {0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
+        ch->Send(0x03, 0x0D, {0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF});
+        ch->Send(0x07, 0x01, {});
+        ch->Send(0x16, 0x01, {});
+        ch->Send(0x15, 0x03, {0x00});
+        ch->Send(0x0C, 0x02, {kFeatureMask, 0, 0, 0});
+        ch->Send(0x11, 0x03, {});
+        ch->Send(0x0A, 0x08, {0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
                              0x00, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-        ch.Send(0x0C, 0x04, {kFeatureMask, 0, 0, 0});
-        ch.Send(0x03, 0x0A, {0x05, 0, 0, 0});
-        ch.Send(0x10, 0x01, {});
-        ch.Send(0x01, 0x0C, {});
-        ch.SetPlayerLed(m_slot);
-
-        StickCal leftCal = ReadStickCal(ch, kCalLeftUser, kCalLeftFactory, "Left");
-        StickCal rightCal = ReadStickCal(ch, kCalRightUser, kCalRightFactory, "Right");
+        ch->Send(0x0C, 0x04, {kFeatureMask, 0, 0, 0});
+        ch->Send(0x03, 0x0A, {0x05, 0, 0, 0});
+        ch->Send(0x10, 0x01, {});
+        ch->Send(0x01, 0x0C, {});
 
         if (m_pairingMode && m_allowPairing && g_hostAddress) {
             // Store this PC as the controller's host so a button press reconnects it.
             uint8_t mac[14] = {0x00, 0x02};
             for (int i = 0; i < 6; i++) mac[2 + i] = mac[8 + i] = (uint8_t)(g_hostAddress >> (8 * i));
-            bool paired = ch.Send(0x15, 0x01, mac, (uint8_t)sizeof(mac), nullptr) && ch.Send(0x15, 0x04, kLtk1, (uint8_t)sizeof(kLtk1), nullptr) &&
-                          ch.Send(0x15, 0x02, kLtk2, (uint8_t)sizeof(kLtk2), nullptr) && ch.Send(0x15, 0x03, {0x00});
+            bool paired = ch->Send(0x15, 0x01, mac, (uint8_t)sizeof(mac), nullptr) &&
+                          ch->Send(0x15, 0x04, kLtk1, (uint8_t)sizeof(kLtk1), nullptr) &&
+                          ch->Send(0x15, 0x02, kLtk2, (uint8_t)sizeof(kLtk2), nullptr) && ch->Send(0x15, 0x03, {0x00});
             Log(paired ? "  paired to this PC: press any button to reconnect next time"
                        : "  pairing failed; hold sync again next time");
         }
 
-        if (fwd.Start(m_slot, true, leftCal, rightCal, 65, m_mode, m_vibration ? this : nullptr)) {
-            Log("  virtual %s pad %d ready", OutputModeName(m_mode), m_slot + 1);
-        } else {
-            Log("  could not create the virtual pad");
-        }
-
-        inputToken = input.ValueChanged([&fwd](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
+        session = std::make_unique<SwitchSession>(true, *ch, m_vibration ? this : nullptr);
+        session->Begin(65);
+        SwitchSession* sp = session.get();
+        inputToken = input.ValueChanged([sp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
             IBuffer b = a.CharacteristicValue();
-            if (b.Length() >= 63) fwd.Process(b.data());
+            if (b.Length() >= 63) sp->Process(b.data());
         });
         if (input.WriteClientCharacteristicConfigurationDescriptorAsync(
                      GattClientCharacteristicConfigurationDescriptorValue::Notify)
@@ -373,7 +366,7 @@ void BleController::Run()
             HANDLE waits[2] = {m_stop, disconnected};
             WaitForMultipleObjects(2, waits, FALSE, INFINITE);
         }
-        Log("Controller %d disconnected (Bluetooth)", m_slot + 1);
+        Log("Bluetooth controller disconnected (%012llX)", m_address);
         fast.Close();
     } catch (hresult_error const& e) {
         Log("  Bluetooth setup failed: %ls (0x%08X)", e.message().c_str(), (unsigned)e.code());
@@ -384,7 +377,9 @@ void BleController::Run()
         if (dev && statusToken) dev.ConnectionStatusChanged(statusToken);
     } catch (hresult_error const&) {
     }
-    fwd.Stop();
+    if (session) session->End();  // stops rumble while the link may still be up
+    session.reset();
+    ch.reset();
     m_vibration.reset();
     if (dev) dev.Close();
     CloseHandle(disconnected);

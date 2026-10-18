@@ -15,6 +15,7 @@ std::recursive_mutex g_lock;  // sessions may call back into the hub
 std::condition_variable_any g_released;
 Slot g_slots[kMaxSlots + 1];  // 1-based
 std::vector<std::function<void()>> g_listeners;
+std::vector<Hub::DetectedDevice> g_detected;
 std::mutex g_listenLock;
 
 int SlotOf(ControllerSession* s)
@@ -94,6 +95,25 @@ bool With(const std::string& serial, const std::function<void(ControllerSession&
         }
     }
     return false;
+}
+
+void SetDetected(std::vector<DetectedDevice> devices)
+{
+    bool changed;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_lock);
+        changed = devices.size() != g_detected.size();
+        for (size_t i = 0; !changed && i < devices.size(); i++)
+            changed = devices[i].id != g_detected[i].id || devices[i].managed != g_detected[i].managed;
+        g_detected = std::move(devices);
+    }
+    if (changed) Changed();
+}
+
+std::vector<DetectedDevice> Detected()
+{
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    return g_detected;
 }
 
 void Changed()

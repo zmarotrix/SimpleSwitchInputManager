@@ -12,6 +12,7 @@ struct ControllerSettings {
     OutputMode mode = OutputMode::DirectInput;
     int slot = 0;                          // preferred player slot 1..8, 0 = first free
     float rumble = 1.0f;                   // 0..1 strength
+    bool managed = false;                  // Switch 1 only: SSIM takes the controller over
 };
 
 struct GlobalSettings {
@@ -37,6 +38,7 @@ public:
     ControllerSettings ForController(const std::string& serial, const std::string& defaultName);
     void SetController(const std::string& serial, const ControllerSettings& s);
     std::vector<std::pair<std::string, ControllerSettings>> AllControllers();
+    bool IsManaged(const std::string& id);
 
 private:
     void SaveLocked();

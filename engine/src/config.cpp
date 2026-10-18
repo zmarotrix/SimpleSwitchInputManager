@@ -81,6 +81,7 @@ void Config::Load()
             s.mode = ParseOutputMode(c.value("outputMode", "dinput")).value_or(OutputMode::DirectInput);
             s.slot = std::clamp(c.value("slot", 0), 0, 8);
             s.rumble = std::clamp(c.value("rumble", 1.0f), 0.f, 1.f);
+            s.managed = c.value("managed", false);
             m_controllers.emplace_back(serial, s);
         }
     } catch (const std::exception& e) {
@@ -103,7 +104,8 @@ void Config::SaveLocked()
                    {"rumbleSafetySeconds", m_global.rumbleSafetySeconds}};
     json cs = json::object();
     for (auto& [serial, s] : m_controllers) {
-        cs[serial] = {{"name", s.name}, {"outputMode", OutputModeKey(s.mode)}, {"slot", s.slot}, {"rumble", s.rumble}};
+        cs[serial] = {{"name", s.name},       {"outputMode", OutputModeKey(s.mode)}, {"slot", s.slot},
+                      {"rumble", s.rumble}, {"managed", s.managed}};
     }
     j["controllers"] = cs;
 
@@ -164,4 +166,12 @@ std::vector<std::pair<std::string, ControllerSettings>> Config::AllControllers()
 {
     std::lock_guard<std::mutex> lock(m_lock);
     return m_controllers;
+}
+
+bool Config::IsManaged(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    for (auto& [k, s] : m_controllers)
+        if (k == id) return s.managed;
+    return false;
 }

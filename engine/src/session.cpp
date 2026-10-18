@@ -12,8 +12,8 @@ uint8_t PlayerLedPattern(int slot)
     return (slot >= 1 && slot <= 8) ? patterns[slot] : 0x00;
 }
 
-SwitchSession::SwitchSession(bool bluetooth, CommandTransport& cmd, RumbleSink* rumble)
-    : m_bluetooth(bluetooth), m_cmd(cmd), m_rumbleSink(rumble)
+SwitchSession::SwitchSession(DeviceOps& ops, bool wired, std::string model, RumbleSink* rumble, int rumblePeriodMs)
+    : m_ops(ops), m_wired(wired), m_model(std::move(model)), m_rumbleSink(rumble), m_rumblePeriodMs(rumblePeriodMs)
 {
 }
 
@@ -24,38 +24,23 @@ SwitchSession::~SwitchSession()
 
 bool SwitchSession::Begin(int reportsPerSecond)
 {
-    // Identity: the serial number in the controller info block (0x13000). Read only
-    // the first 32 bytes: a USB reply is one 64-byte packet including 16 header bytes.
-    uint8_t info[0x20] = {};
     {
-        std::lock_guard<std::mutex> lock(m_cmdLock);
-        if (m_cmd.ReadMemory(0x13000, sizeof(info), info)) {
-            for (int i = 2; i < 16 && info[i] >= 0x20 && info[i] < 0x7F; i++) m_serial += (char)info[i];
-            char color[8];
-            snprintf(color, sizeof(color), "#%02X%02X%02X", info[25], info[26], info[27]);
-            m_bodyColor = color;
-        }
+        std::lock_guard<std::mutex> lock(m_opsLock);
+        m_ops.ReadIdentity(m_serial, m_bodyColor);
     }
     m_persist = !m_serial.empty();
     if (!m_persist) {
-        Log("  could not read the serial number; settings will not be remembered");
-        m_serial = m_bluetooth ? "unknown-bt" : "unknown-usb";
-    }
-
-    StickCal left, right;
-    {
-        std::lock_guard<std::mutex> lock(m_cmdLock);
-        left = ReadStickCal(m_cmd, kCalLeftUser, kCalLeftFactory, "Left");
-        right = ReadStickCal(m_cmd, kCalRightUser, kCalRightFactory, "Right");
+        Log("  could not read the controller's identity; settings will not be remembered");
+        m_serial = m_wired ? "unknown-usb" : "unknown-bt";
     }
 
     if (m_persist) {
-        m_settings = Config::Get().ForController(m_serial, "Pro Controller");
+        m_settings = Config::Get().ForController(m_serial, m_model);
     } else {
-        m_settings.name = "Pro Controller";
+        m_settings.name = m_model;
         m_settings.mode = Config::Get().Global().defaultMode;
     }
-    m_fwd.Start(m_bluetooth, left, right, reportsPerSecond, m_rumbleSink);
+    m_fwd.Start(reportsPerSecond, m_rumbleSink, m_rumblePeriodMs);
     m_fwd.SetRumbleStrength(m_settings.rumble);
     m_fwd.SetRumbleSafety(Config::Get().Global().rumbleSafetySeconds);
 
@@ -63,8 +48,7 @@ bool SwitchSession::Begin(int reportsPerSecond)
     if (!slot) Log("  all %d player slots are taken; this controller has no virtual pad", kMaxSlots);
     m_begun = true;
     ApplySlot(slot);
-    Log("  %s (serial %s): player %d, %s", m_settings.name.c_str(), m_serial.c_str(), slot,
-        OutputModeName(m_settings.mode));
+    Log("  %s (%s): player %d, %s", m_settings.name.c_str(), m_serial.c_str(), slot, OutputModeName(m_settings.mode));
     Hub::Changed();
     return true;
 }
@@ -94,8 +78,8 @@ void SwitchSession::ApplySlot(int slot)
 
 void SwitchSession::SetLeds(uint8_t pattern)
 {
-    std::lock_guard<std::mutex> lock(m_cmdLock);
-    m_cmd.Send(0x09, 0x07, {pattern, 0, 0, 0});
+    std::lock_guard<std::mutex> lock(m_opsLock);
+    m_ops.SetPlayerLeds(pattern);
 }
 
 void SwitchSession::SaveSettings()
@@ -109,8 +93,8 @@ SessionStatus SwitchSession::Status()
     SessionStatus s;
     s.serial = m_serial;
     s.name = m_settings.name;
-    s.model = "Pro Controller 2";
-    s.transport = m_bluetooth ? "bluetooth" : "usb";
+    s.model = m_model;
+    s.transport = m_wired ? "usb" : "bluetooth";
     s.slot = m_slot;
     s.mode = m_settings.mode;
     s.battery = m_fwd.Battery();

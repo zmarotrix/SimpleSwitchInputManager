@@ -49,18 +49,24 @@ json StatusJson()
                                {"rumble", s.rumble},
                                {"bodyColor", s.bodyColor}});
     }
+    json detected = json::array();
+    for (auto& d : Hub::Detected()) {
+        detected.push_back({{"id", d.id}, {"model", d.model}, {"transport", d.transport}, {"managed", d.managed}});
+    }
     json known = json::array();
     for (auto& [serial, c] : Config::Get().AllControllers()) {
         known.push_back({{"serial", serial},
                          {"name", c.name},
                          {"outputMode", OutputModeKey(c.mode)},
                          {"slot", c.slot},
-                         {"rumble", c.rumble}});
+                         {"rumble", c.rumble},
+                         {"managed", c.managed}});
     }
     GlobalSettings g = Config::Get().Global();
     return {{"type", "status"},
             {"controllers", controllers},
             {"knownControllers", known},
+            {"detected", detected},
             {"global",
              {{"defaultOutputMode", OutputModeKey(g.defaultMode)},
               {"bluetooth", g.bluetooth},
@@ -100,8 +106,22 @@ json HandleSetController(const json& req)
     std::string serial = req.at("serial").get<std::string>();
     auto all = Config::Get().AllControllers();
     auto it = std::find_if(all.begin(), all.end(), [&](auto& p) { return p.first == serial; });
-    if (it == all.end()) return {{"ok", false}, {"error", "unknown controller"}};
-    ControllerSettings s = it->second;
+    ControllerSettings s;
+    if (it != all.end()) {
+        s = it->second;
+    } else {
+        // A detected controller that has never been enabled (Switch 1).
+        auto det = Hub::Detected();
+        auto d = std::find_if(det.begin(), det.end(), [&](auto& x) { return x.id == serial; });
+        if (d == det.end()) return {{"ok", false}, {"error", "unknown controller"}};
+        s.name = d->model;
+        s.mode = Config::Get().Global().defaultMode;
+    }
+    if (req.contains("managed")) {
+        // Takes effect within two seconds: the engine starts or releases the controller.
+        s.managed = req["managed"].get<bool>();
+        Config::Get().SetController(serial, s);
+    }
 
     std::optional<OutputMode> mode;
     if (req.contains("outputMode")) {

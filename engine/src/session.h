@@ -1,6 +1,5 @@
 #pragma once
 
-#include "commands.h"
 #include "config.h"
 #include "forwarder.h"
 #include "hub.h"
@@ -9,18 +8,29 @@
 #include <mutex>
 #include <thread>
 
-// Everything one connected Switch 2 controller needs after its transport has
-// woken it up: identity, settings, player slot + lights, the virtual controller
-// and live changes from the tray app. Shared by USB and Bluetooth.
+// What a session needs from a specific controller family.
+class DeviceOps {
+public:
+    virtual ~DeviceOps() = default;
+    // Stable identity (serial number or Bluetooth address) and body colour "#RRGGBB".
+    virtual bool ReadIdentity(std::string& id, std::string& bodyColor) = 0;
+    // Player lights, bit 0 = first light.
+    virtual void SetPlayerLeds(uint8_t pattern) = 0;
+};
+
+// Everything one connected controller needs after its transport has woken it
+// up: identity, settings, player slot + lights, the virtual controller and live
+// changes from the tray app. Shared by every controller family and transport.
 class SwitchSession : public ControllerSession {
 public:
-    SwitchSession(bool bluetooth, CommandTransport& cmd, RumbleSink* rumble);
+    SwitchSession(DeviceOps& ops, bool wired, std::string model, RumbleSink* rumble, int rumblePeriodMs);
     ~SwitchSession() override;
 
-    // Reads identity and calibration, claims a slot and creates the virtual controller.
+    // Reads identity, claims a slot and creates the virtual controller.
     bool Begin(int reportsPerSecond);
     void End();
-    void Process(const uint8_t* body) { m_fwd.Process(body); }
+    void Process(const PadInput& in) { m_fwd.Process(in); }
+    const std::string& Id() const { return m_serial; }
 
     // ControllerSession
     SessionStatus Status() override;
@@ -34,10 +44,12 @@ private:
     void SetLeds(uint8_t pattern);
     void SaveSettings();
 
-    bool m_bluetooth;
-    CommandTransport& m_cmd;
-    std::mutex m_cmdLock;  // commands can come from the tray app's thread
+    DeviceOps& m_ops;
+    std::mutex m_opsLock;  // device commands can come from the tray app's thread
+    bool m_wired;
+    std::string m_model;
     RumbleSink* m_rumbleSink;
+    int m_rumblePeriodMs;
     InputForwarder m_fwd;
 
     std::mutex m_lock;
@@ -46,7 +58,7 @@ private:
     ControllerSettings m_settings;
     int m_slot = 0;
     bool m_begun = false;
-    bool m_persist = true;  // false when the serial could not be read
+    bool m_persist = true;  // false when the identity could not be read
 
     std::thread m_identify;
     std::atomic<bool> m_identifying{false};

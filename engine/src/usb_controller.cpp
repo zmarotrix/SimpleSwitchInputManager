@@ -1,7 +1,9 @@
 #include "usb_controller.h"
 
 #include "commands.h"
+#include "decode_sw2.h"
 #include "session.h"
+#include "devenum.h"
 #include "hidhide.h"
 
 #include <initguid.h>
@@ -17,53 +19,6 @@
 // ---------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------
-
-static std::vector<std::wstring> InterfaceList(const GUID& guid, const wchar_t* instanceId)
-{
-    std::vector<std::wstring> out;
-    for (int attempt = 0; attempt < 3; attempt++) {
-        ULONG len = 0;
-        if (CM_Get_Device_Interface_List_SizeW(&len, (LPGUID)&guid, (DEVINSTID_W)instanceId,
-                                               CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS) {
-            return out;
-        }
-        std::vector<wchar_t> buf(len + 1, 0);
-        CONFIGRET cr = CM_Get_Device_Interface_ListW((LPGUID)&guid, (DEVINSTID_W)instanceId, buf.data(), len,
-                                                     CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
-        if (cr == CR_BUFFER_SMALL) continue;  // a device arrived between the two calls
-        if (cr != CR_SUCCESS) return out;
-        for (const wchar_t* p = buf.data(); *p; p += wcslen(p) + 1) out.emplace_back(p);
-        return out;
-    }
-    return out;
-}
-
-static std::wstring InterfaceInstanceId(const std::wstring& path)
-{
-    wchar_t id[MAX_DEVICE_ID_LEN];
-    ULONG size = sizeof(id);
-    DEVPROPTYPE type;
-    if (CM_Get_Device_Interface_PropertyW(path.c_str(), &DEVPKEY_Device_InstanceId, &type, (PBYTE)id, &size, 0) !=
-        CR_SUCCESS) {
-        return L"";
-    }
-    return id;
-}
-
-static std::wstring NodeId(DEVINST dn)
-{
-    wchar_t id[MAX_DEVICE_ID_LEN];
-    if (CM_Get_Device_IDW(dn, id, MAX_DEVICE_ID_LEN, 0) != CR_SUCCESS) return L"";
-    return id;
-}
-
-static bool ContainsNoCase(const std::wstring& hay, const wchar_t* needle)
-{
-    std::wstring h = hay, n = needle;
-    _wcsupr_s(h.data(), h.size() + 1);
-    _wcsupr_s(n.data(), n.size() + 1);
-    return h.find(n) != std::wstring::npos;
-}
 
 // The vendor command interface (MI_01) is bound to WinUSB through the
 // controller's own MS OS descriptors; its interface GUID is in Device Parameters.
@@ -209,9 +164,11 @@ UsbController::~UsbController()
 }
 
 // HID output report 0x02: left actuator block, then right (hid_reports.md).
-bool UsbController::SendRumble(const uint8_t left[16], const uint8_t right[16])
+bool UsbController::SendRumble(const RumbleCommand& c)
 {
     if (m_hid == INVALID_HANDLE_VALUE) return false;
+    uint8_t left[16], right[16];
+    m_encoder.Encode(c, left, right);
     uint8_t report[64] = {0x02};
     memcpy(report + 1, left, 16);
     memcpy(report + 17, right, 16);
@@ -275,8 +232,13 @@ void UsbController::Run()
         Log("  HidHide: could not hide the raw controller; games may see it twice");
     }
 
+    StickCal leftCal = ReadStickCal(ch, kCalLeftUser, kCalLeftFactory, "Left");
+    StickCal rightCal = ReadStickCal(ch, kCalRightUser, kCalRightFactory, "Right");
+    Sw2Decoder decoder(leftCal, rightCal, true);
+
     m_hid = hid;
-    SwitchSession session(false, ch, this);
+    Sw2DeviceOps ops(ch);
+    SwitchSession session(ops, true, "Pro Controller 2", this, 8);
     session.Begin(250);
 
     // 3. Forward every report the moment it arrives.
@@ -300,7 +262,7 @@ void UsbController::Run()
             Log("USB controller disconnected (%lu)", GetLastError());
             break;
         }
-        if (got == 64 && buf[0] == 0x05) session.Process(buf + 1);
+        if (got == 64 && buf[0] == 0x05) session.Process(decoder.Decode(buf + 1));
     }
 
     CloseHandle(ov.hEvent);

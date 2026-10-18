@@ -35,11 +35,10 @@ void Sw2RumbleEncoder::Encode(const RumbleCommand& c, uint8_t left[16], uint8_t 
     m_counter++;
 }
 
-void RumbleScheduler::Start(RumbleSink* sink, bool wired, int periodMs)
+void RumbleScheduler::Start(RumbleSink* sink, int periodMs)
 {
     Stop();
     m_sink = sink;
-    m_wired = wired;
     m_periodMs = periodMs;
     m_quit = false;
     m_cmd = {};
@@ -94,7 +93,6 @@ void RumbleScheduler::Pulse(float level, int ms)
 void RumbleScheduler::Run()
 {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
-    Sw2RumbleEncoder enc(m_wired);
     bool wasActive = false;
     std::unique_lock<std::mutex> lock(m_lock);
     for (;;) {
@@ -123,17 +121,11 @@ void RumbleScheduler::Run()
         }
         lock.unlock();
 
-        uint8_t l[16], r[16];
-        enc.Encode(c, l, r);
-        m_sink->SendRumble(l, r);
+        m_sink->SendRumble(c);
         wasActive = c.Active();
 
         lock.lock();
     }
     lock.unlock();
-    if (wasActive) {
-        uint8_t l[16], r[16];
-        enc.Encode({}, l, r);
-        m_sink->SendRumble(l, r);
-    }
+    if (wasActive) m_sink->SendRumble({});
 }

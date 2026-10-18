@@ -7,12 +7,12 @@
 #include <mutex>
 #include <thread>
 
-// Where encoded rumble goes: the controller's USB HID output report or its
-// Bluetooth vibration characteristic. Each block is 16 bytes per actuator.
+// A controller's rumble output. Each controller family encodes the command in
+// its own format (Switch 2 LRA blocks, Switch 1 HD rumble).
 class RumbleSink {
 public:
     virtual ~RumbleSink() = default;
-    virtual bool SendRumble(const uint8_t left[16], const uint8_t right[16]) = 0;
+    virtual bool SendRumble(const RumbleCommand& c) = 0;
 };
 
 // Switch 2 HD rumble: one block = 0x50|counter followed by three 5-byte frames.
@@ -34,7 +34,7 @@ public:
     using Clock = std::chrono::steady_clock;
 
     ~RumbleScheduler() { Stop(); }
-    void Start(RumbleSink* sink, bool wired, int periodMs);
+    void Start(RumbleSink* sink, int periodMs);
     void Stop();
     void Set(const RumbleCommand& c);  // from the game, via the virtual controller
     void SetStrength(float s);         // 0..1 user scale
@@ -48,7 +48,6 @@ private:
 
     RumbleSink* m_sink = nullptr;
     int m_periodMs = 8;
-    bool m_wired = false;
     std::thread m_thread;
     std::mutex m_lock;
     std::condition_variable m_cv;

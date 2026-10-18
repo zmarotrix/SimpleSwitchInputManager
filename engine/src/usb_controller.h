@@ -27,7 +27,7 @@ public:
     void Stop() override;
     bool Finished() const override { return m_finished; }
     const std::wstring& Key() const override { return m_info.hidPath; }
-    bool SendRumble(const uint8_t left[16], const uint8_t right[16]) override;
+    bool SendRumble(const RumbleCommand& c) override;
 
 private:
     void Run();
@@ -36,6 +36,7 @@ private:
     bool m_hide;
     HANDLE m_hid = INVALID_HANDLE_VALUE;
     HANDLE m_writeEvent;
+    Sw2RumbleEncoder m_encoder{true};
     std::thread m_thread;
     HANDLE m_stop;
     std::atomic<bool> m_finished{false};

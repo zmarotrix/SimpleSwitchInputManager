@@ -10,6 +10,7 @@
 #include "common.h"
 
 #include "ble_controller.h"
+#include "sw1.h"
 #include "usb_controller.h"
 #include "dsu.h"
 #include "hidhide.h"
@@ -102,6 +103,23 @@ static int RunLoop()
                       sources.end());
         for (auto& dev : FindControllers()) {
             if (!active(dev.hidPath)) add(std::make_unique<UsbController>(dev, hide));
+        }
+
+        // Switch 1: list everything, drive only what the user enabled, release the rest.
+        std::vector<Hub::DetectedDevice> detected;
+        for (auto& dev : FindSwitch1Controllers()) {
+            bool managed = Config::Get().IsManaged(dev.Id());
+            detected.push_back({dev.Id(), dev.model, "bluetooth", managed});
+            if (managed && dev.pid == 0x2009 && !active(dev.hidPath) &&
+                GetTickCount64() - lastAttempt[dev.hidPath] > 10000) {
+                lastAttempt[dev.hidPath] = GetTickCount64();
+                add(std::make_unique<Sw1Controller>(dev, hide));
+            }
+        }
+        Hub::SetDetected(std::move(detected));
+        for (auto& s : sources) {
+            auto* sw1 = dynamic_cast<Sw1Controller*>(s.get());
+            if (sw1 && !sw1->Finished() && !Config::Get().IsManaged(sw1->Id())) sw1->Stop();  // restores it
         }
 
         std::map<uint64_t, bool> seen;

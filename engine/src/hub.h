@@ -49,6 +49,17 @@ std::vector<SessionStatus> List();
 // Runs fn on the live session for `serial` (under the hub lock). Returns false if not connected.
 bool With(const std::string& serial, const std::function<void(ControllerSession&)>& fn);
 
+// Controllers that are present but not (yet) driven by SSIM, e.g. Switch 1
+// controllers the user has not enabled. Shown in the tray app so they can be.
+struct DetectedDevice {
+    std::string id;
+    std::string model;
+    std::string transport;
+    bool managed = false;
+};
+void SetDetected(std::vector<DetectedDevice> devices);  // notifies only when the list changes
+std::vector<DetectedDevice> Detected();
+
 // Change notifications (connect, disconnect, setting changes).
 void Changed();
 void OnChange(std::function<void()> fn);

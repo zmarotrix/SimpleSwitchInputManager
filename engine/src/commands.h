@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "protocol.h"
+#include "session.h"
 
 #include <vector>
 
@@ -56,3 +57,27 @@ inline StickCal ReadStickCal(CommandTransport& ch, uint32_t userAddr, uint32_t f
     }
     return cal;
 }
+
+// Switch 2 identity and player lights over the command channel.
+class Sw2DeviceOps : public DeviceOps {
+public:
+    explicit Sw2DeviceOps(CommandTransport& ch) : m_ch(ch) {}
+
+    bool ReadIdentity(std::string& id, std::string& bodyColor) override
+    {
+        // Serial number at 0x13000+2. Read only 32 bytes: a USB reply is one
+        // 64-byte packet including 16 header bytes.
+        uint8_t info[0x20] = {};
+        if (!m_ch.ReadMemory(0x13000, sizeof(info), info)) return false;
+        for (int i = 2; i < 16 && info[i] >= 0x20 && info[i] < 0x7F; i++) id += (char)info[i];
+        char color[8];
+        snprintf(color, sizeof(color), "#%02X%02X%02X", info[25], info[26], info[27]);
+        bodyColor = color;
+        return !id.empty();
+    }
+
+    void SetPlayerLeds(uint8_t pattern) override { m_ch.Send(0x09, 0x07, {pattern, 0, 0, 0}); }
+
+private:
+    CommandTransport& m_ch;
+};

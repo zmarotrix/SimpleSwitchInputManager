@@ -2,29 +2,26 @@
 
 #include "common.h"
 #include "output.h"
-#include "protocol.h"
 #include "rumble.h"
 
 #include <atomic>
 #include <memory>
 #include <mutex>
 
-// Turns a Switch 2 controller's "report 0x05" input (identical over USB and
-// Bluetooth) into the chosen virtual controller plus the DSU motion server, and
-// sends the game's rumble back to the controller.
+// Feeds a controller's decoded input to its virtual controller and the DSU
+// motion server, and sends the game's rumble back. Family-neutral: Switch 1
+// and Switch 2 decoders both produce PadInput.
 class InputForwarder {
 public:
     ~InputForwarder() { Stop(); }
 
-    // slot: player 1..8 (0 = no virtual controller).
-    void Start(bool bluetooth, const StickCal& left, const StickCal& right, int reportsPerSecond,
-               RumbleSink* rumble);
-    // Creates (or recreates) the virtual controller. Safe to call while input flows.
+    void Start(int reportsPerSecond, RumbleSink* rumble, int rumblePeriodMs);
+    // Creates (or recreates) the virtual controller for player `slot` (0 = none).
+    // Safe to call while input flows.
     bool Configure(int slot, OutputMode mode);
     void Stop();
 
-    // body: the 63-byte report without its report-id byte.
-    void Process(const uint8_t* body);
+    void Process(PadInput in);
 
     void SetRumbleStrength(float s) { m_rumble.SetStrength(s); }
     void SetRumbleSafety(int seconds);
@@ -32,10 +29,11 @@ public:
     int Battery() const { return m_battery; }
 
 private:
+    // Learns the gyro's zero-rate offset whenever the controller sits still.
     class GyroBias {
     public:
         explicit GyroBias(int window = 250) : m_window(window) {}
-        void Add(const int16_t g[3]);
+        void Add(const float g[3]);
         float bias[3] = {};
 
     private:
@@ -47,14 +45,9 @@ private:
     std::mutex m_lock;  // guards m_out / m_slot against Configure() from other threads
     bool m_started = false;
     int m_slot = 0;
-    bool m_bluetooth = false;
-    StickCal m_left, m_right;
     std::unique_ptr<OutputBackend> m_out;
     RumbleScheduler m_rumble;
     GyroBias m_bias;
-    uint32_t m_lastImuTs = 0;
-    uint64_t m_imuClock = 0;
-    LARGE_INTEGER m_qpf{}, m_lastQpc{};
     std::atomic<int> m_battery{-1};
     int m_safetySeconds = 20;
 };

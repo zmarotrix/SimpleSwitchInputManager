@@ -8,7 +8,7 @@
 //   {"cmd":"status"}
 //   {"cmd":"subscribe"}                      then {"type":"status",...} on every change and every 5 s
 //   {"cmd":"setController","serial":"...","outputMode":"dinput|xinput|dualsense","slot":1-8,
-//    "rumble":0-1,"name":"..."}             any subset of fields
+//    "rumble":0-1,"name":"...","managed":bool}   any subset; "managed" enables a Switch 1 controller
 //   {"cmd":"identify","serial":"..."}
 //   {"cmd":"setGlobal","defaultOutputMode":...,"bluetooth":bool,"pairBluetooth":bool,"dsu":bool,
 //    "dsuPort":int,"rumbleSafetySeconds":int}

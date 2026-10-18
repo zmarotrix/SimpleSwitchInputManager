@@ -1,6 +1,7 @@
 #include "ble_controller.h"
 
 #include "commands.h"
+#include "decode_sw2.h"
 #include "session.h"
 
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
@@ -228,11 +229,13 @@ BleController::~BleController()
 }
 
 // Pro Controller vibration characteristic: 0x00, then left and right actuator blocks.
-bool BleController::SendRumble(const uint8_t left[16], const uint8_t right[16])
+bool BleController::SendRumble(const RumbleCommand& c)
 {
     static thread_local bool apartment = (EnsureApartment(), true);
     (void)apartment;
     if (!m_vibration || !m_vibration->ch) return false;
+    uint8_t left[16], right[16];
+    m_encoder.Encode(c, left, right);
     try {
         Buffer b(33);
         uint8_t* p = b.data();
@@ -268,7 +271,9 @@ void BleController::Run()
 
     HANDLE disconnected = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     std::unique_ptr<BleCommandChannel> ch;
+    std::unique_ptr<Sw2DeviceOps> ops;
     std::unique_ptr<SwitchSession> session;
+    std::unique_ptr<Sw2Decoder> decoder;
     BluetoothLEDevice dev{nullptr};
     GattCharacteristic input{nullptr};
     event_token inputToken{}, statusToken{};
@@ -333,6 +338,8 @@ void BleController::Run()
         ch->Send(0x03, 0x0A, {0x05, 0, 0, 0});
         ch->Send(0x10, 0x01, {});
         ch->Send(0x01, 0x0C, {});
+        StickCal leftCal = ReadStickCal(*ch, kCalLeftUser, kCalLeftFactory, "Left");
+        StickCal rightCal = ReadStickCal(*ch, kCalRightUser, kCalRightFactory, "Right");
 
         if (m_pairingMode && m_allowPairing && g_hostAddress) {
             // Store this PC as the controller's host so a button press reconnects it.
@@ -345,12 +352,15 @@ void BleController::Run()
                        : "  pairing failed; hold sync again next time");
         }
 
-        session = std::make_unique<SwitchSession>(true, *ch, m_vibration ? this : nullptr);
+        ops = std::make_unique<Sw2DeviceOps>(*ch);
+        session = std::make_unique<SwitchSession>(*ops, false, "Pro Controller 2", m_vibration ? this : nullptr, 15);
         session->Begin(65);
+        decoder = std::make_unique<Sw2Decoder>(leftCal, rightCal, false);
         SwitchSession* sp = session.get();
-        inputToken = input.ValueChanged([sp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
+        Sw2Decoder* dp = decoder.get();
+        inputToken = input.ValueChanged([sp, dp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
             IBuffer b = a.CharacteristicValue();
-            if (b.Length() >= 63) sp->Process(b.data());
+            if (b.Length() >= 63) sp->Process(dp->Decode(b.data()));
         });
         if (input.WriteClientCharacteristicConfigurationDescriptorAsync(
                      GattClientCharacteristicConfigurationDescriptorValue::Notify)

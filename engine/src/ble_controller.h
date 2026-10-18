@@ -31,7 +31,7 @@ public:
     const std::wstring& Key() const override { return m_key; }
 
     static std::wstring KeyFor(uint64_t address);
-    bool SendRumble(const uint8_t left[16], const uint8_t right[16]) override;
+    bool SendRumble(const RumbleCommand& c) override;
 
 private:
     void Run();
@@ -40,7 +40,8 @@ private:
     bool m_pairingMode;
     bool m_allowPairing;
     struct Vibration;
-    std::unique_ptr<Vibration> m_vibration;  // GATT characteristic, valid while connected
+    std::unique_ptr<Vibration> m_vibration;
+    Sw2RumbleEncoder m_encoder{false};  // GATT characteristic, valid while connected
     std::wstring m_key;
     std::thread m_thread;
     HANDLE m_stop;

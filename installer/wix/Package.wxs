@@ -30,6 +30,14 @@
                       Name="Start" Type="raw" Bitness="always64" />
     </Property>
 
+    <!-- The developer install (dev\install.ps1) would fight SSIM over the controllers and the driver. -->
+    <Property Id="DEV_SERVICE_PRESENT">
+      <RegistrySearch Id="DevService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\Switch2ProPad"
+                      Name="Start" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT DEV_SERVICE_PRESENT"
+            Message="A developer build of SSIM (the Switch2ProPad service) is installed. Remove it first with dev\uninstall.ps1 from an administrator PowerShell, then run this setup again." />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="SSIM">
         <Directory Id="DRIVERFOLDER" Name="driver" />

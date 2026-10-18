@@ -211,6 +211,7 @@ static PCCERT_CONTEXT CreateCertificate(const SigningKey& key)
     SYSTEMTIME start, end;
     GetSystemTime(&start);
     start.wYear -= 1;  // tolerate a wrong clock
+    if (start.wMonth == 2 && start.wDay == 29) start.wDay = 28;
     end = start;
     end.wYear += 51;
 
@@ -396,7 +397,23 @@ static bool SignAndInstallDriver(const fs::path& installDir)
     if (!DiInstallDriverW(nullptr, inf.c_str(), DIIRFLAG_FORCE_INF, &reboot))
         return Log(L"Driver install failed (0x%08lX)", GetLastError()), false;
     Log(L"WinUHid driver installed%ls", reboot ? L" (restart required)" : L"");
-    if (reboot) MsiSetMode(g_msi, MSIRUNMODE_REBOOTATEND, TRUE);
+    if (reboot) {
+        MsiSetMode(g_msi, MSIRUNMODE_REBOOTATEND, TRUE);
+        return true;
+    }
+
+    // The service starts right after this and exits if the driver isn't up yet, so wait for it.
+    for (int i = 0; i < 150; i++) {
+        HANDLE h = CreateFileW(L"\\\\.\\WinUHid", GENERIC_READ | GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+            Log(L"WinUHid driver is running");
+            return true;
+        }
+        Sleep(100);
+    }
+    Log(L"The WinUHid driver did not start within 15 s (%lu)", GetLastError());
     return true;
 }
 

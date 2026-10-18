@@ -2,6 +2,7 @@
 
 #include "commands.h"
 #include "decode_sw2.h"
+#include "joycon.h"
 #include "session.h"
 
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
@@ -29,6 +30,8 @@ constexpr uint16_t kNintendoCompanyId = 0x0553;
 static const guid kServiceUuid{0xab7de9be, 0x89fe, 0x49ad, {0x82, 0x8f, 0x11, 0x8f, 0x09, 0xdf, 0x7f, 0xd0}};
 static const guid kInputUuid{0xab7de9be, 0x89fe, 0x49ad, {0x82, 0x8f, 0x11, 0x8f, 0x09, 0xdf, 0x7f, 0xd2}};
 static const guid kVibrationUuid{0xcc483f51, 0x9258, 0x427d, {0xa9, 0x39, 0x63, 0x0c, 0x31, 0xf7, 0x2b, 0x05}};
+static const guid kVibrationJoyConRUuid{0xfa19b0fb, 0xcd1f, 0x46a7, {0x84, 0xa1, 0xbb, 0xb0, 0x9e, 0x00, 0xc1, 0x49}};
+static const guid kVibrationJoyConLUuid{0x289326cb, 0xa471, 0x485d, {0xa8, 0xf4, 0x24, 0x0c, 0x14, 0xf1, 0x82, 0x41}};
 
 // Fixed pairing keys used by the Switch 2 controllers (from Switch2Connect / ndeadly's research).
 static const uint8_t kLtk1[] = {0x00, 0xea, 0xbd, 0x47, 0x13, 0x89, 0x35, 0x42, 0xc6,
@@ -55,7 +58,7 @@ namespace Ble {
 
 static std::mutex g_watchLock;
 static BluetoothLEAdvertisementWatcher g_watcher{nullptr};
-static std::function<void(uint64_t, bool)> g_onFound;
+static std::function<void(uint64_t, bool, uint16_t)> g_onFound;
 
 static void OnAdvertisement(BluetoothLEAdvertisementWatcher const&, BluetoothLEAdvertisementReceivedEventArgs const& a)
 {
@@ -65,19 +68,19 @@ static void OnAdvertisement(BluetoothLEAdvertisementWatcher const&, BluetoothLEA
         if (buf.Length() < 16) continue;
         const uint8_t* d = buf.data();
         uint16_t vid = d[3] | (d[4] << 8), pid = d[5] | (d[6] << 8);
-        if (vid != kNintendoVid || pid != kPro2Pid) continue;
+        if (vid != kNintendoVid || (pid != kPro2Pid && pid != kJoyCon2LPid && pid != kJoyCon2RPid)) continue;
         uint64_t reconnect = 0;
         for (int i = 5; i >= 0; i--) reconnect = (reconnect << 8) | d[10 + i];
         if (reconnect == 0) {
-            g_onFound(a.BluetoothAddress(), true);  // sync button held
+            g_onFound(a.BluetoothAddress(), true, pid);  // sync button held
         } else if (reconnect == g_hostAddress) {
-            g_onFound(a.BluetoothAddress(), false);  // paired to this PC, woken by a button
+            g_onFound(a.BluetoothAddress(), false, pid);  // paired to this PC, woken by a button
         }
         // Otherwise it belongs to another host (e.g. a Switch 2): leave it alone.
     }
 }
 
-bool StartWatcher(std::function<void(uint64_t, bool)> onFound)
+bool StartWatcher(std::function<void(uint64_t, bool, uint16_t)> onFound)
 {
     EnsureApartment();
     try {
@@ -213,10 +216,11 @@ struct BleController::Vibration {
     GattCharacteristic ch{nullptr};
 };
 
-BleController::BleController(uint64_t address, bool pairingMode, bool allowPairing)
+BleController::BleController(uint64_t address, bool pairingMode, bool allowPairing, uint16_t pid)
     : m_address(address),
       m_pairingMode(pairingMode),
       m_allowPairing(allowPairing),
+      m_pid(pid),
       m_key(KeyFor(address)),
       m_stop(CreateEventW(nullptr, TRUE, FALSE, nullptr))
 {
@@ -228,7 +232,27 @@ BleController::~BleController()
     CloseHandle(m_stop);
 }
 
-// Pro Controller vibration characteristic: 0x00, then left and right actuator blocks.
+// A Switch 2 Joy-Con on Bluetooth, as seen by the Joy-Con manager.
+class BleJoyCon : public JoyConUnit {
+public:
+    BleJoyCon(BleController* owner, JoyConSide side, std::string id, DeviceOps& ops)
+        : m_owner(owner), m_side(side), m_id(std::move(id)), m_ops(ops)
+    {
+    }
+    JoyConSide Side() const override { return m_side; }
+    int Generation() const override { return 2; }
+    const std::string& Id() const override { return m_id; }
+    DeviceOps& Ops() override { return m_ops; }
+    bool Rumble(float low, float high) override { return m_owner->SendRumble({low, high, low, high}); }
+
+private:
+    BleController* m_owner;
+    JoyConSide m_side;
+    std::string m_id;
+    DeviceOps& m_ops;
+};
+
+// Vibration characteristic: 0x00, then the actuator block(s).
 bool BleController::SendRumble(const RumbleCommand& c)
 {
     static thread_local bool apartment = (EnsureApartment(), true);
@@ -236,13 +260,16 @@ bool BleController::SendRumble(const RumbleCommand& c)
     if (!m_vibration || !m_vibration->ch) return false;
     uint8_t left[16], right[16];
     m_encoder.Encode(c, left, right);
+    bool joycon = m_pid != kPro2Pid;
     try {
-        Buffer b(33);
+        // Pro Controller: 0x00 + left + right. Joy-Con: 0x00 + its one actuator.
+        uint32_t len = joycon ? 17 : 33;
+        Buffer b(len);
         uint8_t* p = b.data();
         p[0] = 0x00;
         memcpy(p + 1, left, 16);
-        memcpy(p + 17, right, 16);
-        b.Length(33);
+        if (!joycon) memcpy(p + 17, right, 16);
+        b.Length(len);
         return m_vibration->ch.WriteValueAsync(b, GattWriteOption::WriteWithoutResponse).get() ==
                GattCommunicationStatus::Success;
     } catch (hresult_error const&) {
@@ -274,6 +301,7 @@ void BleController::Run()
     std::unique_ptr<Sw2DeviceOps> ops;
     std::unique_ptr<SwitchSession> session;
     std::unique_ptr<Sw2Decoder> decoder;
+    std::unique_ptr<BleJoyCon> joyconUnit;
     BluetoothLEDevice dev{nullptr};
     GattCharacteristic input{nullptr};
     event_token inputToken{}, statusToken{};
@@ -314,7 +342,10 @@ void BleController::Run()
                 writes.push_back(c);
             if ((p & GattCharacteristicProperties::Notify) != GattCharacteristicProperties::None) notifies.push_back(c);
             if (c.Uuid() == kInputUuid) input = c;
-            if (c.Uuid() == kVibrationUuid) m_vibration = std::make_unique<Vibration>(Vibration{c});
+            const guid& vib = m_pid == kJoyCon2LPid   ? kVibrationJoyConLUuid
+                              : m_pid == kJoyCon2RPid ? kVibrationJoyConRUuid
+                                                      : kVibrationUuid;
+            if (c.Uuid() == vib) m_vibration = std::make_unique<Vibration>(Vibration{c});
         }
         if (writes.size() < 2 || notifies.size() < 3 || !input) throw hresult_error(E_FAIL, L"unexpected GATT layout");
 
@@ -338,8 +369,18 @@ void BleController::Run()
         ch->Send(0x03, 0x0A, {0x05, 0, 0, 0});
         ch->Send(0x10, 0x01, {});
         ch->Send(0x01, 0x0C, {});
+        bool joycon = m_pid != kPro2Pid;
+        if (joycon) {
+            // Joy-Cons need input "format 3", or status bits leak into the button field.
+            const uint8_t cmd[11] = {0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x30};
+            Buffer fmt(sizeof(cmd));
+            memcpy(fmt.data(), cmd, sizeof(cmd));
+            fmt.Length(sizeof(cmd));
+            writes[1].WriteValueAsync(fmt, GattWriteOption::WriteWithoutResponse).get();
+        }
+        // A Joy-Con keeps its one stick's calibration in the "left" (primary) block.
         StickCal leftCal = ReadStickCal(*ch, kCalLeftUser, kCalLeftFactory, "Left");
-        StickCal rightCal = ReadStickCal(*ch, kCalRightUser, kCalRightFactory, "Right");
+        StickCal rightCal = joycon ? leftCal : ReadStickCal(*ch, kCalRightUser, kCalRightFactory, "Right");
 
         if (m_pairingMode && m_allowPairing && g_hostAddress) {
             // Store this PC as the controller's host so a button press reconnects it.
@@ -353,16 +394,39 @@ void BleController::Run()
         }
 
         ops = std::make_unique<Sw2DeviceOps>(*ch);
-        session = std::make_unique<SwitchSession>(*ops, false, "Switch 2 Pro Controller", kVirtualPidSwitch2Pro,
-                                                  m_vibration ? this : nullptr, 15);
-        session->Begin(65);
         decoder = std::make_unique<Sw2Decoder>(leftCal, rightCal, false);
-        SwitchSession* sp = session.get();
         Sw2Decoder* dp = decoder.get();
-        inputToken = input.ValueChanged([sp, dp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
-            IBuffer b = a.CharacteristicValue();
-            if (b.Length() >= 63) sp->Process(dp->Decode(b.data()));
-        });
+        if (joycon) {
+            // Joy-Cons are grouped (paired or single) by the Joy-Con manager.
+            std::string id, color;
+            ops->ReadIdentity(id, color);
+            if (id.empty()) {
+                char addr[16];
+                snprintf(addr, sizeof(addr), "%012llX", m_address);
+                id = addr;
+            }
+            joyconUnit = std::make_unique<BleJoyCon>(this, m_pid == kJoyCon2LPid ? JoyConSide::Left : JoyConSide::Right,
+                                                     id, *ops);
+            Log("  Joy-Con (%s) %s", m_pid == kJoyCon2LPid ? "L" : "R", id.c_str());
+            JoyCons::Add(joyconUnit.get());
+            JoyConUnit* up = joyconUnit.get();
+            inputToken = input.ValueChanged([up, dp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
+                IBuffer b = a.CharacteristicValue();
+                if (b.Length() < 63) return;
+                PadInput in = dp->Decode(b.data());
+                in.buttons &= 0x03FFFFFF;  // drop status bits that leak into the top byte
+                JoyCons::Input(up, in);
+            });
+        } else {
+            session = std::make_unique<SwitchSession>(*ops, false, "Switch 2 Pro Controller", kVirtualPidSwitch2Pro,
+                                                      m_vibration ? this : nullptr, 15);
+            session->Begin(65);
+            SwitchSession* sp = session.get();
+            inputToken = input.ValueChanged([sp, dp](GattCharacteristic const&, GattValueChangedEventArgs const& a) {
+                IBuffer b = a.CharacteristicValue();
+                if (b.Length() >= 63) sp->Process(dp->Decode(b.data()));
+            });
+        }
         if (input.WriteClientCharacteristicConfigurationDescriptorAsync(
                      GattClientCharacteristicConfigurationDescriptorValue::Notify)
                 .get() != GattCommunicationStatus::Success)
@@ -388,6 +452,8 @@ void BleController::Run()
         if (dev && statusToken) dev.ConnectionStatusChanged(statusToken);
     } catch (hresult_error const&) {
     }
+    if (joyconUnit) JoyCons::Remove(joyconUnit.get());  // regroups the other Joy-Con
+    joyconUnit.reset();
     if (session) session->End();  // stops rumble while the link may still be up
     session.reset();
     ch.reset();

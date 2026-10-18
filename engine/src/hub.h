@@ -18,6 +18,8 @@ struct SessionStatus {
     int battery = -1;       // percent, -1 unknown
     float rumble = 1.0f;
     std::string bodyColor;  // "#RRGGBB"
+    std::string kind = "pro";          // "pro", "joycon" (one Joy-Con) or "joyconPair"
+    std::vector<std::string> members;  // Joy-Con ids in this controller
 };
 
 // A connected physical controller that the engine can be asked to change.

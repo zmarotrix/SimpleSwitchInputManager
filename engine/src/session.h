@@ -32,6 +32,12 @@ public:
     void End();
     void Process(const PadInput& in) { m_fwd.Process(in); }
     const std::string& Id() const { return m_serial; }
+    // Joy-Con groups describe themselves to the tray app ("joycon" / "joyconPair").
+    void SetJoyCon(std::string kind, std::vector<std::string> members)
+    {
+        m_kind = std::move(kind);
+        m_members = std::move(members);
+    }
 
     // ControllerSession
     SessionStatus Status() override;
@@ -57,6 +63,8 @@ private:
     std::mutex m_lock;
     std::string m_serial;
     std::string m_bodyColor;
+    std::string m_kind = "pro";
+    std::vector<std::string> m_members;
     ControllerSettings m_settings;
     int m_slot = 0;
     bool m_begun = false;

@@ -5,7 +5,10 @@
 $ErrorActionPreference = 'Stop'
 $pads = @(
     @{ Pid = '0001'; Name = 'Switch 2 Pro Controller' },
-    @{ Pid = '0002'; Name = 'Switch 1 Pro Controller' }
+    @{ Pid = '0002'; Name = 'Switch 1 Pro Controller' },
+    @{ Pid = '0003'; Name = 'Joy-Con (L)' },
+    @{ Pid = '0004'; Name = 'Joy-Con (R)' },
+    @{ Pid = '0005'; Name = 'Joy-Con pair' }
 )
 foreach ($pad in $pads) {
 $oem = "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_1209&PID_$($pad.Pid)"

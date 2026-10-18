@@ -10,6 +10,7 @@
 #include "common.h"
 
 #include "ble_controller.h"
+#include "joycon.h"
 #include "sw1.h"
 #include "usb_controller.h"
 #include "dsu.h"
@@ -70,11 +71,11 @@ static int RunLoop()
 
     // Bluetooth sightings arrive on a WinRT thread; the loop below acts on them.
     std::mutex sightLock;
-    std::map<uint64_t, bool> sightings;  // address -> sync mode
+    std::map<uint64_t, std::pair<bool, uint16_t>> sightings;  // address -> (sync mode, product id)
     if (settings.bluetooth) {
-        Ble::StartWatcher([&](uint64_t address, bool pairingMode) {
+        Ble::StartWatcher([&](uint64_t address, bool pairingMode, uint16_t pid) {
             std::lock_guard<std::mutex> lock(sightLock);
-            sightings[address] = pairingMode;
+            sightings[address] = {pairingMode, pid};
             SetEvent(arrival);
         });
     }
@@ -110,7 +111,7 @@ static int RunLoop()
         for (auto& dev : FindSwitch1Controllers()) {
             bool managed = Config::Get().IsManaged(dev.Id());
             detected.push_back({dev.Id(), dev.model, "bluetooth", managed});
-            if (managed && dev.pid == 0x2009 && !active(dev.hidPath) &&
+            if (managed && !active(dev.hidPath) &&
                 GetTickCount64() - lastAttempt[dev.hidPath] > 10000) {
                 lastAttempt[dev.hidPath] = GetTickCount64();
                 add(std::make_unique<Sw1Controller>(dev, hide));
@@ -122,23 +123,24 @@ static int RunLoop()
             if (sw1 && !sw1->Finished() && !Config::Get().IsManaged(sw1->Id())) sw1->Stop();  // restores it
         }
 
-        std::map<uint64_t, bool> seen;
+        std::map<uint64_t, std::pair<bool, uint16_t>> seen;
         {
             std::lock_guard<std::mutex> lock(sightLock);
             seen.swap(sightings);
         }
         ULONGLONG now = GetTickCount64();
         bool allowPairing = Config::Get().Global().pairBluetooth;
-        for (auto& [address, pairingMode] : seen) {
+        for (auto& [address, sighting] : seen) {
             std::wstring key = BleController::KeyFor(address);
             if (active(key) || now - lastAttempt[key] < 3000) continue;
             lastAttempt[key] = now;
-            add(std::make_unique<BleController>(address, pairingMode, allowPairing));
+            add(std::make_unique<BleController>(address, sighting.first, allowPairing, sighting.second));
         }
         if (settings.bluetooth) Ble::KeepWatcherAlive();
     }
 
     Log("Stopping");
+    JoyCons::Shutdown();
     Ble::StopWatcher();
     if (notify) CM_Unregister_Notification(notify);
     sources.clear();

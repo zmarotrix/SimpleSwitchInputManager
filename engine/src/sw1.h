@@ -78,6 +78,7 @@ private:
     std::vector<uint8_t> m_reply;
     std::atomic<bool> m_loopRunning{false};
 
-    SwitchSession* m_session = nullptr;
+    SwitchSession* m_session = nullptr;        // Pro Controller
+    class JoyConUnit* m_joycon = nullptr;      // Joy-Con (grouped by the Joy-Con manager)
     class Sw1Decoder* m_decoder = nullptr;
 };

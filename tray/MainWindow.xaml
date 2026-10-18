@@ -102,6 +102,12 @@
                                 <Button Content="Release" Margin="0,4,0,0" Click="Release_Click"
                                         Visibility="{Binding IsSwitch1, Converter={StaticResource BoolToVis}}"
                                         ToolTip="Stop managing this Switch 1 controller and hand it back to Windows" />
+                                <Button Content="Split" Margin="0,4,0,0" Click="Split_Click"
+                                        Visibility="{Binding IsJoyConPair, Converter={StaticResource BoolToVis}}"
+                                        ToolTip="Use these Joy-Cons as two separate sideways controllers" />
+                                <Button Content="Pair" Margin="0,4,0,0" Click="Pair_Click"
+                                        Visibility="{Binding IsSingleJoyCon, Converter={StaticResource BoolToVis}}"
+                                        ToolTip="Combine with a Joy-Con of the other side into one controller" />
                             </StackPanel>
                         </Grid>
                     </GroupBox>
@@ -155,6 +161,15 @@
                                           IsChecked="{Binding PairBluetooth}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="18,2,0,0"
                                            Text="Pairing may replace the controller's pairing with a Switch console. Plug it into the console once to pair it back." />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Joy-Cons">
+                            <StackPanel>
+                                <CheckBox Content="Pair a left and a right Joy-Con into one controller automatically"
+                                          IsChecked="{Binding CombineJoyCons}" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="18,2,0,0"
+                                           Text="A Joy-Con on its own works held sideways. Use Pair / Split on the Controllers tab to change one pair." />
                             </StackPanel>
                         </GroupBox>
 

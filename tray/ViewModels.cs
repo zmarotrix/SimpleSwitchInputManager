@@ -130,7 +130,24 @@ public sealed class ControllerVm : Observable
     private Brush _color = Brushes.Gray;
     public Brush Color { get => _color; private set => Set(ref _color, value); }
 
-    public bool IsSwitch1 => Serial.StartsWith("SW1-");
+    public bool IsSwitch1 => Serial.StartsWith("SW1-") && Kind == "pro";
+
+    // Joy-Cons: "joycon" = one Joy-Con on its own, "joyconPair" = L + R together.
+    private string _kind = "pro";
+    public string Kind
+    {
+        get => _kind;
+        private set
+        {
+            if (!Set(ref _kind, value)) return;
+            Raise(nameof(IsJoyConPair));
+            Raise(nameof(IsSingleJoyCon));
+            Raise(nameof(IsSwitch1));
+        }
+    }
+    public bool IsJoyConPair => Kind == "joyconPair";
+    public bool IsSingleJoyCon => Kind == "joycon";
+    public List<string> Members { get; private set; } = new();
 
     public void Apply(JsonObject c)
     {
@@ -145,6 +162,8 @@ public sealed class ControllerVm : Observable
             OutputMode = (string?)c["outputMode"] ?? "dinput";
             Rumble = (double?)c["rumble"] ?? 1.0;
             Color = ParseColor((string?)c["bodyColor"]);
+            Kind = (string?)c["kind"] ?? "pro";
+            Members = (c["members"] as JsonArray)?.Select(m => (string?)m ?? "").ToList() ?? new();
         }
         finally
         {
@@ -171,8 +190,7 @@ public sealed class DetectedVm : Observable
     public string Id { get; }
     public string Model { get; }
     public string Address => Id.StartsWith("SW1-") ? Id[4..] : Id;
-    // Joy-Con pairing arrives with the next update; only the Pro can be enabled today.
-    public bool CanEnable => Model.Contains("Pro");
+    public bool CanEnable => true;
 
     public DetectedVm(string id, string model)
     {
@@ -253,6 +271,13 @@ public sealed class MainVm : Observable
         set { if (Set(ref _dsuPort, value) && !Applying) _ = SetGlobalNeedsRestart("dsuPort", value); }
     }
 
+    private bool _combineJoyCons = true;
+    public bool CombineJoyCons
+    {
+        get => _combineJoyCons;
+        set { if (Set(ref _combineJoyCons, value) && !Applying) _ = _engine.SetGlobalAsync("combineJoyCons", value); }
+    }
+
     private int _rumbleSafety = 20;
     public int RumbleSafety
     {
@@ -311,6 +336,7 @@ public sealed class MainVm : Observable
                 Dsu = (bool?)g["dsu"] ?? true;
                 DsuPort = (int?)g["dsuPort"] ?? 26760;
                 RumbleSafety = (int?)g["rumbleSafetySeconds"] ?? 20;
+                CombineJoyCons = (bool?)g["combineJoyCons"] ?? true;
             }
             finally
             {

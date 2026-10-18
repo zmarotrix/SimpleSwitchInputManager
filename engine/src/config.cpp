@@ -73,6 +73,7 @@ void Config::Load()
         m_global.dsu = g.value("dsu", true);
         m_global.dsuPort = std::clamp(g.value("dsuPort", 26760), 1024, 65535);
         m_global.rumbleSafetySeconds = std::clamp(g.value("rumbleSafetySeconds", 20), 0, 3600);
+        m_global.combineJoyCons = g.value("combineJoyCons", true);
         m_controllers.clear();
         json controllers = j.value("controllers", json::object());  // keep alive while iterating
         for (auto& [serial, c] : controllers.items()) {
@@ -82,6 +83,7 @@ void Config::Load()
             s.slot = std::clamp(c.value("slot", 0), 0, 8);
             s.rumble = std::clamp(c.value("rumble", 1.0f), 0.f, 1.f);
             s.managed = c.value("managed", false);
+            s.joyconSingle = c.value("joyconSingle", false);
             m_controllers.emplace_back(serial, s);
         }
     } catch (const std::exception& e) {
@@ -101,11 +103,12 @@ void Config::SaveLocked()
                    {"pairBluetooth", m_global.pairBluetooth},
                    {"dsu", m_global.dsu},
                    {"dsuPort", m_global.dsuPort},
-                   {"rumbleSafetySeconds", m_global.rumbleSafetySeconds}};
+                   {"rumbleSafetySeconds", m_global.rumbleSafetySeconds},
+                   {"combineJoyCons", m_global.combineJoyCons}};
     json cs = json::object();
     for (auto& [serial, s] : m_controllers) {
         cs[serial] = {{"name", s.name},       {"outputMode", OutputModeKey(s.mode)}, {"slot", s.slot},
-                      {"rumble", s.rumble}, {"managed", s.managed}};
+                      {"rumble", s.rumble}, {"managed", s.managed},  {"joyconSingle", s.joyconSingle}};
     }
     j["controllers"] = cs;
 
@@ -166,6 +169,14 @@ std::vector<std::pair<std::string, ControllerSettings>> Config::AllControllers()
 {
     std::lock_guard<std::mutex> lock(m_lock);
     return m_controllers;
+}
+
+bool Config::IsJoyConSingle(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    for (auto& [k, s] : m_controllers)
+        if (k == id) return s.joyconSingle;
+    return false;
 }
 
 bool Config::IsManaged(const std::string& id)

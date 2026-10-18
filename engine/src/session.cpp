@@ -115,6 +115,8 @@ SessionStatus SwitchSession::Status()
     s.battery = m_fwd.Battery();
     s.rumble = m_settings.rumble;
     s.bodyColor = m_bodyColor;
+    s.kind = m_kind;
+    s.members = m_members;
     return s;
 }
 

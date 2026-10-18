@@ -2,6 +2,7 @@
 
 #include "devenum.h"
 #include "hidhide.h"
+#include "joycon.h"
 #include "protocol.h"
 #include "sw1_rumble_tables.h"
 
@@ -45,7 +46,11 @@ void ParseCal(const uint8_t* d, bool leftOrder, StickCal& out)
 
 class Sw1Decoder {
 public:
-    Sw1Decoder(const StickCal& l, const StickCal& r) : m_left(l), m_right(r) { QueryPerformanceFrequency(&m_qpf); }
+    Sw1Decoder(const StickCal& l, const StickCal& r, bool rightJoyCon = false)
+        : m_left(l), m_right(r), m_rightJoyCon(rightJoyCon)
+    {
+        QueryPerformanceFrequency(&m_qpf);
+    }
 
     // r: full report including the 0x30 id byte.
     PadInput Decode(const uint8_t* r)
@@ -81,6 +86,13 @@ public:
         in.gyro[0] = -g[1] * kGyro;
         in.gyro[1] = -g[2] * kGyro;
         in.gyro[2] = g[0] * kGyro;
+        if (m_rightJoyCon) {
+            // The right Joy-Con's IMU is mounted mirrored (SDL flips x/y back).
+            in.accel[0] = -in.accel[0];
+            in.accel[1] = -in.accel[1];
+            in.gyro[0] = -in.gyro[0];
+            in.gyro[1] = -in.gyro[1];
+        }
         LARGE_INTEGER qpc;
         QueryPerformanceCounter(&qpc);
         in.motionTimestampUs = (uint64_t)(qpc.QuadPart * 1000000 / m_qpf.QuadPart);
@@ -89,7 +101,24 @@ public:
 
 private:
     StickCal m_left, m_right;
+    bool m_rightJoyCon;
     LARGE_INTEGER m_qpf{};
+};
+
+// A Switch 1 Joy-Con, as seen by the Joy-Con manager.
+class Sw1JoyCon : public JoyConUnit {
+public:
+    Sw1JoyCon(Sw1Controller* owner, JoyConSide side, std::string id) : m_owner(owner), m_side(side), m_id(std::move(id)) {}
+    JoyConSide Side() const override { return m_side; }
+    int Generation() const override { return 1; }
+    const std::string& Id() const override { return m_id; }
+    DeviceOps& Ops() override { return *m_owner; }
+    bool Rumble(float low, float high) override { return m_owner->SendRumble({low, high, low, high}); }
+
+private:
+    Sw1Controller* m_owner;
+    JoyConSide m_side;
+    std::string m_id;
 };
 
 // ---------------------------------------------------------------------------
@@ -310,7 +339,13 @@ bool Sw1Controller::SendRumble(const RumbleCommand& c)
 void Sw1Controller::HandleReport(const uint8_t* r, DWORD n)
 {
     if (r[0] == 0x30 && n >= 49) {
-        if (m_session && m_decoder) m_session->Process(m_decoder->Decode(r));
+        if (!m_decoder) return;
+        if (m_session) {
+            m_session->Process(m_decoder->Decode(r));
+        } else if (m_joycon) {
+            PadInput in = m_decoder->Decode(r);
+            JoyCons::Input(m_joycon, in);
+        }
     } else if (r[0] == 0x21 && n > 15) {
         {
             std::lock_guard<std::mutex> lock(m_replyLock);
@@ -360,11 +395,21 @@ void Sw1Controller::Run()
     if (haveUser && user[11] == 0xB2 && user[12] == 0xA1) ParseCal(user + 13, false, right);
     Log("  stick calibration: %s", haveFactory || haveUser ? "read" : "defaults");
 
-    Sw1Decoder decoder(left, right);
-    SwitchSession session(*this, false, m_info.model, kVirtualPidSwitch1Pro, this, 40);
+    bool joycon = m_info.pid != 0x2009;
+    Sw1Decoder decoder(left, right, m_info.pid == 0x2007);
     m_decoder = &decoder;
-    session.Begin(66);
-    m_session = &session;
+    std::unique_ptr<SwitchSession> session;
+    std::unique_ptr<Sw1JoyCon> unit;
+    if (joycon) {
+        // Joy-Cons are grouped (paired or single) by the Joy-Con manager.
+        unit = std::make_unique<Sw1JoyCon>(this, m_info.pid == 0x2006 ? JoyConSide::Left : JoyConSide::Right, m_info.Id());
+        JoyCons::Add(unit.get());
+        m_joycon = unit.get();
+    } else {
+        session = std::make_unique<SwitchSession>(*this, false, m_info.model, kVirtualPidSwitch1Pro, this, 40);
+        session->Begin(66);
+        m_session = session.get();
+    }
 
     // Input loop.
     m_loopRunning = true;
@@ -394,7 +439,9 @@ void Sw1Controller::Run()
     CloseHandle(ov.hEvent);
     m_loopRunning = false;
     m_session = nullptr;
-    session.End();  // stops rumble
+    if (m_joycon) JoyCons::Remove(m_joycon);  // regroups the other Joy-Con
+    m_joycon = nullptr;
+    if (session) session->End();  // stops rumble
     m_decoder = nullptr;
 
     // Hand it back exactly as we found it: IMU off, simple (DirectInput) mode, visible.

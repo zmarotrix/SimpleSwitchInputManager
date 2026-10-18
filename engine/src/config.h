@@ -13,6 +13,7 @@ struct ControllerSettings {
     int slot = 0;                          // preferred player slot 1..8, 0 = first free
     float rumble = 1.0f;                   // 0..1 strength
     bool managed = false;                  // Switch 1 only: SSIM takes the controller over
+    bool joyconSingle = false;             // Joy-Con only: never pair it, use it sideways on its own
 };
 
 struct GlobalSettings {
@@ -22,6 +23,7 @@ struct GlobalSettings {
     bool dsu = true;
     int dsuPort = 26760;
     int rumbleSafetySeconds = 20;  // stop rumble a game leaves untouched this long (0 = never)
+    bool combineJoyCons = true;    // pair a left and a right Joy-Con into one controller
 };
 
 // Settings persisted in %ProgramData%\SSIM\config.json, keyed by controller
@@ -39,6 +41,7 @@ public:
     void SetController(const std::string& serial, const ControllerSettings& s);
     std::vector<std::pair<std::string, ControllerSettings>> AllControllers();
     bool IsManaged(const std::string& id);
+    bool IsJoyConSingle(const std::string& id);
 
 private:
     void SaveLocked();

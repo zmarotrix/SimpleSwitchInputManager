@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "hub.h"
+#include "joycon.h"
 #include "sw1.h"
 
 #include "nlohmann/json.hpp"
@@ -48,7 +49,9 @@ json StatusJson()
                                {"outputMode", OutputModeKey(s.mode)},
                                {"battery", s.battery},
                                {"rumble", s.rumble},
-                               {"bodyColor", s.bodyColor}});
+                               {"bodyColor", s.bodyColor},
+                               {"kind", s.kind},
+                               {"members", s.members}});
     }
     json detected = json::array();
     for (auto& d : Hub::Detected()) {
@@ -74,7 +77,8 @@ json StatusJson()
               {"pairBluetooth", g.pairBluetooth},
               {"dsu", g.dsu},
               {"dsuPort", g.dsuPort},
-              {"rumbleSafetySeconds", g.rumbleSafetySeconds}}}};
+              {"rumbleSafetySeconds", g.rumbleSafetySeconds},
+              {"combineJoyCons", g.combineJoyCons}}}};
 }
 
 bool WriteLine(Client& c, const json& j)
@@ -114,9 +118,19 @@ json HandleSetController(const json& req)
         // A detected controller that has never been enabled (Switch 1).
         auto det = Hub::Detected();
         auto d = std::find_if(det.begin(), det.end(), [&](auto& x) { return x.id == serial; });
-        if (d == det.end()) return {{"ok", false}, {"error", "unknown controller"}};
-        s.name = d->model;
+        // Joy-Cons that have only ever been part of a pair are not in the config yet.
+        bool joyconMember = false;
+        for (auto& st : Hub::List())
+            joyconMember |= std::find(st.members.begin(), st.members.end(), serial) != st.members.end();
+        if (d == det.end() && !joyconMember) return {{"ok", false}, {"error", "unknown controller"}};
+        s.name = d != det.end() ? d->model : "Joy-Con";
         s.mode = Config::Get().Global().defaultMode;
+    }
+    if (req.contains("joyconSingle")) {
+        // Pair / split Joy-Cons: regroup in the background (sessions restart).
+        s.joyconSingle = req["joyconSingle"].get<bool>();
+        Config::Get().SetController(serial, s);
+        std::thread([] { JoyCons::Rearrange(); }).detach();
     }
     if (req.contains("managed")) {
         // Takes effect within two seconds: the engine starts or releases the controller.
@@ -176,7 +190,10 @@ json HandleSetGlobal(const json& req)
         g.dsuPort = p;
     }
     if (req.contains("rumbleSafetySeconds")) g.rumbleSafetySeconds = std::clamp(req["rumbleSafetySeconds"].get<int>(), 0, 3600);
+    bool regroup = req.contains("combineJoyCons") && g.combineJoyCons != req["combineJoyCons"].get<bool>();
+    if (req.contains("combineJoyCons")) g.combineJoyCons = req["combineJoyCons"].get<bool>();
     Config::Get().SetGlobal(g);
+    if (regroup) std::thread([] { JoyCons::Rearrange(); }).detach();
     Hub::Changed();
     return {{"ok", true}, {"restartRequired", restart}};
 }

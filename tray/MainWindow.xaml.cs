@@ -51,16 +51,29 @@ public partial class MainWindow : Window
         if (Item<ControllerVm>(sender) is { } c) Show(await App.Engine.SetControllerAsync(c.Serial, "managed", false));
     }
 
+    private async void Split_Click(object sender, RoutedEventArgs e)
+    {
+        if (Item<ControllerVm>(sender) is not { } c) return;
+        foreach (var id in c.Members) Show(await App.Engine.SetControllerAsync(id, "joyconSingle", true));
+    }
+
+    private async void Pair_Click(object sender, RoutedEventArgs e)
+    {
+        if (Item<ControllerVm>(sender) is not { } c) return;
+        // Clear "single" on every lone Joy-Con, so this one has a partner to pair with.
+        var vm = (MainVm)DataContext;
+        var ids = vm.Controllers.Where(x => x.IsSingleJoyCon).SelectMany(x => x.Members).Union(c.Members).ToList();
+        foreach (var id in ids) Show(await App.Engine.SetControllerAsync(id, "joyconSingle", false));
+        if (!((MainVm)DataContext).CombineJoyCons)
+            MessageBox.Show(this, "Turn on automatic Joy-Con pairing in Settings so it pairs with a Joy-Con of the other side.",
+                Title, MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private DetectedVm? SelectedDetected => ((MainVm)DataContext).SelectedDetected;
 
     private async void Enable_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedDetected is not { } d) return;
-        if (!d.CanEnable)
-        {
-            MessageBox.Show(this, "Joy-Con support is coming in the next update.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
         Show(await App.Engine.SetControllerAsync(d.Id, "managed", true));
     }
 

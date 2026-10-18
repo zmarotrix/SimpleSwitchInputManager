@@ -1,0 +1,54 @@
+name: Build WinUHid
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build WinUHid
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x86, x64, ARM64]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: x64
+
+    - name: Restore NuGet packages
+      run: msbuild -t:restore -p:RestorePackagesConfig=true
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+
+    - name: Install vcpkg MSBuild integration
+      run: ${{ github.workspace }}/vcpkg/vcpkg.exe integrate install
+
+    - name: Build solution
+      run: msbuild WinUHid.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /verbosity:minimal
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinUHid-${{ matrix.configuration }}-${{ matrix.platform }}
+        path: |
+          build/${{ matrix.configuration }}/${{ matrix.platform }}/WinUHid.*
+          WinUHid/WinUHid.h

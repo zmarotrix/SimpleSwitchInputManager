@@ -1,0 +1,10 @@
+bin/
+obj/
+build/
+x64/
+*.obj
+*.pdb
+*.log
+.vs/
+driver/
+deps/

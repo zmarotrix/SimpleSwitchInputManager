@@ -41,6 +41,11 @@ static const uint8_t kLtk2[] = {0x00, 0x40, 0xb0, 0x8a, 0x5f, 0xcd, 0x1f, 0x9b, 
 
 static uint64_t g_hostAddress = 0;
 
+// Windows' Bluetooth stack drops one of two controllers that are set up at the
+// same moment (seen when both Joy-Cons wake together), so connection setup runs
+// one controller at a time. Each setup takes under a second.
+static std::mutex g_setupLock;
+
 static void EnsureApartment()
 {
     try {
@@ -307,6 +312,7 @@ void BleController::Run()
     event_token inputToken{}, statusToken{};
 
     try {
+        std::unique_lock<std::mutex> setupOneAtATime(g_setupLock);
         dev = BluetoothLEDevice::FromBluetoothAddressAsync(m_address).get();
         if (!dev) throw hresult_error(E_FAIL, L"device not reachable");
         statusToken = dev.ConnectionStatusChanged([disconnected](BluetoothLEDevice const& d, auto&&) {
@@ -431,6 +437,7 @@ void BleController::Run()
                      GattClientCharacteristicConfigurationDescriptorValue::Notify)
                 .get() != GattCommunicationStatus::Success)
             throw hresult_error(E_FAIL, L"input subscription");
+        setupOneAtATime.unlock();  // set up: the next controller may connect
 
         auto params = dev.GetConnectionParameters();
         Log("  Bluetooth link: %.2f ms interval (%s)", params.ConnectionInterval() * 1.25,

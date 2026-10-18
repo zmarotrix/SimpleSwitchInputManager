@@ -37,8 +37,9 @@ void InputForwarder::GyroBias::Add(const float g[3])
     memset(m_sq, 0, sizeof(m_sq));
 }
 
-void InputForwarder::Start(int reportsPerSecond, RumbleSink* rumble, int rumblePeriodMs)
+void InputForwarder::Start(int reportsPerSecond, RumbleSink* rumble, int rumblePeriodMs, USHORT dinputPid)
 {
+    m_dinputPid = dinputPid;
     m_bias = GyroBias(reportsPerSecond);  // about one second of samples
     if (rumble) m_rumble.Start(rumble, rumblePeriodMs);
     m_started = true;
@@ -53,7 +54,7 @@ bool InputForwarder::Configure(int slot, OutputMode mode)
     if (m_slot && m_slot != slot) Dsu::Disconnect(m_slot - 1);
     m_slot = slot;
     if (!slot) return false;
-    m_out = CreateOutput(mode);
+    m_out = CreateOutput(mode, m_dinputPid);
     m_out->OnRumble([this](const RumbleCommand& c) { m_rumble.Set(c); });
     m_rumble.SetSafetyTimeout(m_out->RumbleStopsWithApp() ? 0 : m_safetySeconds);
     if (!m_out->Create(slot - 1)) {

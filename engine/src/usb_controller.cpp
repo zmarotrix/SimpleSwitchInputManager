@@ -238,7 +238,7 @@ void UsbController::Run()
 
     m_hid = hid;
     Sw2DeviceOps ops(ch);
-    SwitchSession session(ops, true, "Pro Controller 2", this, 8);
+    SwitchSession session(ops, true, "Switch 2 Pro Controller", kVirtualPidSwitch2Pro, this, 8);
     session.Begin(250);
 
     // 3. Forward every report the moment it arrives.

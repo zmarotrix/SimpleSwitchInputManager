@@ -1,13 +1,18 @@
-# Registers the DirectInput pad (VID 1209 / PID 0001) as a force-feedback device
-# handled by Windows' built-in HID PID driver (pid.dll). Run as administrator.
-# The installer does the same.
+# Registers SSIM's DirectInput pads: the name Windows shows for each controller
+# family's VID/PID, and force feedback through Windows' built-in HID PID driver
+# (pid.dll). Run as administrator. The installer does the same.
 
 $ErrorActionPreference = 'Stop'
-$oem = 'HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_1209&PID_0001'
+$pads = @(
+    @{ Pid = '0001'; Name = 'Switch 2 Pro Controller' },
+    @{ Pid = '0002'; Name = 'Switch 1 Pro Controller' }
+)
+foreach ($pad in $pads) {
+$oem = "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_1209&PID_$($pad.Pid)"
 $ff = "$oem\OEMForceFeedback"
 
 New-Item -Force $oem | Out-Null
-Set-ItemProperty $oem -Name OEMName -Value 'Switch 2 Pro Controller'
+Set-ItemProperty $oem -Name OEMName -Value $pad.Name
 New-Item -Force $ff | Out-Null
 Set-ItemProperty $ff -Name CLSID -Value '{EEC6993A-B3FD-11D2-A916-00C04FB98638}'  # Microsoft HID PID driver
 # DIFFDEVICEATTRIBUTES: flags 0, sample period 1000 us, min time resolution 1000 us
@@ -33,4 +38,5 @@ foreach ($e in $effects) {
             [BitConverter]::GetBytes([uint32]0x30)
     Set-ItemProperty $key -Name Attributes -Type Binary -Value ([byte[]]$attr)
 }
-Write-Host 'Force feedback registered for the DirectInput pad.'
+}
+Write-Host 'Names and force feedback registered for the DirectInput pads.'

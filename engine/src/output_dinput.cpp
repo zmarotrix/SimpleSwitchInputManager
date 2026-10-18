@@ -474,6 +474,8 @@ private:
 
 class DirectInputOutput : public OutputBackend {
 public:
+    explicit DirectInputOutput(USHORT pid) : m_pid(pid) {}
+
     ~DirectInputOutput() override { Destroy(); }
 
     bool Create(int slot) override
@@ -485,7 +487,7 @@ public:
         config.SupportedEvents =
             (WINUHID_EVENT_TYPE)(WINUHID_EVENT_WRITE_REPORT | WINUHID_EVENT_GET_FEATURE | WINUHID_EVENT_SET_FEATURE);
         config.VendorID = kVirtualVid;
-        config.ProductID = kVirtualPid;
+        config.ProductID = m_pid;
         config.VersionNumber = 0x0100;
         config.ReportDescriptorLength = sizeof(kReportDescriptor);
         config.ReportDescriptor = kReportDescriptor;
@@ -639,6 +641,7 @@ private:
         }
     }
 
+    USHORT m_pid;
     PWINUHID_DEVICE m_dev = nullptr;
     EffectEngine m_fx;
     int m_lastLoaded = 0;
@@ -649,12 +652,12 @@ private:
 std::unique_ptr<OutputBackend> CreateXInputOutput();
 std::unique_ptr<OutputBackend> CreateDualSenseOutput();
 
-std::unique_ptr<OutputBackend> CreateOutput(OutputMode mode)
+std::unique_ptr<OutputBackend> CreateOutput(OutputMode mode, USHORT dinputPid)
 {
     switch (mode) {
     case OutputMode::XInput: return CreateXInputOutput();
     case OutputMode::DualSense: return CreateDualSenseOutput();
-    default: return std::make_unique<DirectInputOutput>();
+    default: return std::make_unique<DirectInputOutput>(dinputPid);
     }
 }
 

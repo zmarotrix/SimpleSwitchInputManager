@@ -12,6 +12,7 @@
 //   {"cmd":"identify","serial":"..."}
 //   {"cmd":"setGlobal","defaultOutputMode":...,"bluetooth":bool,"pairBluetooth":bool,"dsu":bool,
 //    "dsuPort":int,"rumbleSafetySeconds":int}
+//   {"cmd":"switch1Mode","id":"SW1-...","mode":"simple|full"}   one-shot, unmanaged Switch 1 only
 // Replies: {"ok":true,...} or {"ok":false,"error":"..."}.
 namespace Ipc {
 

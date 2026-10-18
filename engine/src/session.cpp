@@ -12,8 +12,14 @@ uint8_t PlayerLedPattern(int slot)
     return (slot >= 1 && slot <= 8) ? patterns[slot] : 0x00;
 }
 
-SwitchSession::SwitchSession(DeviceOps& ops, bool wired, std::string model, RumbleSink* rumble, int rumblePeriodMs)
-    : m_ops(ops), m_wired(wired), m_model(std::move(model)), m_rumbleSink(rumble), m_rumblePeriodMs(rumblePeriodMs)
+SwitchSession::SwitchSession(DeviceOps& ops, bool wired, std::string model, USHORT dinputPid, RumbleSink* rumble,
+                             int rumblePeriodMs)
+    : m_ops(ops),
+      m_wired(wired),
+      m_model(std::move(model)),
+      m_rumbleSink(rumble),
+      m_rumblePeriodMs(rumblePeriodMs),
+      m_dinputPid(dinputPid)
 {
 }
 
@@ -36,11 +42,20 @@ bool SwitchSession::Begin(int reportsPerSecond)
 
     if (m_persist) {
         m_settings = Config::Get().ForController(m_serial, m_model);
+        // Early builds used vaguer default names; upgrade them (names the user typed are kept).
+        static const char* legacy[] = {"Pro Controller", "Pro Controller 2", "Switch Pro Controller"};
+        for (const char* old : legacy) {
+            if (m_settings.name == old && m_settings.name != m_model) {
+                m_settings.name = m_model;
+                Config::Get().SetController(m_serial, m_settings);
+                break;
+            }
+        }
     } else {
         m_settings.name = m_model;
         m_settings.mode = Config::Get().Global().defaultMode;
     }
-    m_fwd.Start(reportsPerSecond, m_rumbleSink, m_rumblePeriodMs);
+    m_fwd.Start(reportsPerSecond, m_rumbleSink, m_rumblePeriodMs, m_dinputPid);
     m_fwd.SetRumbleStrength(m_settings.rumble);
     m_fwd.SetRumbleSafety(Config::Get().Global().rumbleSafetySeconds);
 

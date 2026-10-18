@@ -102,9 +102,9 @@ std::vector<Sw1DeviceInfo> FindSwitch1Controllers()
         const wchar_t* tag;
         uint16_t pid;
         const char* model;
-    } kinds[] = {{L"_VID&0002057E_PID&2009", 0x2009, "Switch Pro Controller"},
-                 {L"_VID&0002057E_PID&2006", 0x2006, "Joy-Con (L)"},
-                 {L"_VID&0002057E_PID&2007", 0x2007, "Joy-Con (R)"}};
+    } kinds[] = {{L"_VID&0002057E_PID&2009", 0x2009, "Switch 1 Pro Controller"},
+                 {L"_VID&0002057E_PID&2006", 0x2006, "Switch 1 Joy-Con (L)"},
+                 {L"_VID&0002057E_PID&2007", 0x2007, "Switch 1 Joy-Con (R)"}};
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
     std::vector<Sw1DeviceInfo> out;
@@ -361,7 +361,7 @@ void Sw1Controller::Run()
     Log("  stick calibration: %s", haveFactory || haveUser ? "read" : "defaults");
 
     Sw1Decoder decoder(left, right);
-    SwitchSession session(*this, false, m_info.model, this, 40);
+    SwitchSession session(*this, false, m_info.model, kVirtualPidSwitch1Pro, this, 40);
     m_decoder = &decoder;
     session.Begin(66);
     m_session = &session;
@@ -407,4 +407,30 @@ void Sw1Controller::Run()
         CloseHandle(m_hid);
         m_hid = INVALID_HANDLE_VALUE;
     }
+}
+
+bool Sw1SetInputMode(const std::string& id, bool simple)
+{
+    for (auto& dev : FindSwitch1Controllers()) {
+        if (dev.Id() != id) continue;
+        HANDLE h = CreateFileW(dev.hidPath.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        PHIDP_PREPARSED_DATA pp = nullptr;
+        HIDP_CAPS caps = {};
+        if (HidD_GetPreparsedData(h, &pp)) {
+            HidP_GetCaps(pp, &caps);
+            HidD_FreePreparsedData(pp);
+        }
+        std::vector<uint8_t> pkt(std::max<DWORD>(caps.OutputReportByteLength, kReportLen), 0);
+        const uint8_t head[12] = {0x01, 0x00, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40,
+                                  0x03, (uint8_t)(simple ? 0x3F : 0x30)};
+        memcpy(pkt.data(), head, sizeof(head));
+        DWORD done = 0;
+        bool ok = WriteFile(h, pkt.data(), (DWORD)pkt.size(), &done, nullptr) != FALSE;
+        CloseHandle(h);
+        Log("%s %s: switched to %s mode on request", dev.model, dev.address.c_str(), simple ? "simple" : "full");
+        return ok;
+    }
+    return false;
 }

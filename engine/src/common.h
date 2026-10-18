@@ -11,10 +11,13 @@
 constexpr USHORT kNintendoVid = 0x057E;
 constexpr USHORT kPro2Pid = 0x2069;
 
-// Virtual DirectInput pad presented to games. 0x1209/0x0001 is the pid.codes
-// test ID, so it can never collide with a real Nintendo (or other) device.
+// Virtual DirectInput pads presented to games use pid.codes' open vendor ID, so
+// they can never collide with a real Nintendo (or other) device. Each controller
+// family has its own product ID, because Windows names a DirectInput pad by
+// VID/PID (OEMName in the registry; set by the installer).
 constexpr USHORT kVirtualVid = 0x1209;
-constexpr USHORT kVirtualPid = 0x0001;
+constexpr USHORT kVirtualPidSwitch2Pro = 0x0001;  // "Switch 2 Pro Controller"
+constexpr USHORT kVirtualPidSwitch1Pro = 0x0002;  // "Switch 1 Pro Controller"
 
 constexpr int kMaxControllers = 4;
 

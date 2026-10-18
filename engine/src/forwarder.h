@@ -15,7 +15,7 @@ class InputForwarder {
 public:
     ~InputForwarder() { Stop(); }
 
-    void Start(int reportsPerSecond, RumbleSink* rumble, int rumblePeriodMs);
+    void Start(int reportsPerSecond, RumbleSink* rumble, int rumblePeriodMs, USHORT dinputPid);
     // Creates (or recreates) the virtual controller for player `slot` (0 = none).
     // Safe to call while input flows.
     bool Configure(int slot, OutputMode mode);
@@ -50,6 +50,7 @@ private:
     GyroBias m_bias;
     std::atomic<int> m_battery{-1};
     int m_safetySeconds = 20;
+    USHORT m_dinputPid = kVirtualPidSwitch2Pro;
 };
 
 // One physical controller on any transport, owned by the main loop.

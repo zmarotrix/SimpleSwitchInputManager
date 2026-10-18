@@ -27,6 +27,11 @@ struct Sw1DeviceInfo {
 // Lists Switch 1 controllers from the device tree only; never talks to them.
 std::vector<Sw1DeviceInfo> FindSwitch1Controllers();
 
+// One-shot, user-requested: switch a controller SSIM is NOT managing between
+// simple mode (0x3F, DirectInput) and full mode (0x30, Steam/SDL). Fixes a
+// controller another program left in full mode.
+bool Sw1SetInputMode(const std::string& id, bool simple);
+
 class Sw1Controller : public PadSource, public RumbleSink, public DeviceOps {
 public:
     Sw1Controller(Sw1DeviceInfo info, bool hide);

@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "hub.h"
+#include "sw1.h"
 
 #include "nlohmann/json.hpp"
 
@@ -200,6 +201,12 @@ json Handle(Client& c, const json& req)
         return live ? json{{"ok", true}} : json{{"ok", false}, {"error", "controller not connected"}};
     }
     if (cmd == "setGlobal") return HandleSetGlobal(req);
+    if (cmd == "switch1Mode") {
+        std::string id = req.at("id").get<std::string>();
+        if (Config::Get().IsManaged(id)) return {{"ok", false}, {"error", "SSIM is managing this controller"}};
+        bool simple = req.at("mode").get<std::string>() == "simple";
+        return Sw1SetInputMode(id, simple) ? json{{"ok", true}} : json{{"ok", false}, {"error", "controller not found"}};
+    }
     return {{"ok", false}, {"error", "unknown cmd"}};
 }
 

@@ -37,7 +37,8 @@ private:
     std::function<void(const RumbleCommand&)> m_rumble;
 };
 
-std::unique_ptr<OutputBackend> CreateOutput(OutputMode mode);
+// dinputPid: the DirectInput product ID for this controller family (see common.h).
+std::unique_ptr<OutputBackend> CreateOutput(OutputMode mode, USHORT dinputPid);
 bool WinUHidAvailable();
 
 // Shared helpers for backends.

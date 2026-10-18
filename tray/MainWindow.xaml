@@ -1,0 +1,194 @@
+<Window x:Class="Ssim.Tray.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Ssim.Tray"
+        Title="Simple Switch Input Manager"
+        Width="560" Height="500" MinWidth="520" MinHeight="460"
+        ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterScreen"
+        Background="{x:Static SystemColors.ControlBrush}"
+        TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:InverseBoolToVisibility x:Key="NotBoolToVis" />
+        <Style TargetType="GroupBox">
+            <Setter Property="Padding" Value="6" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="MinWidth" Value="75" />
+            <Setter Property="Padding" Value="8,2" />
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{x:Static SystemColors.GrayTextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="10">
+        <!-- Bottom bar -->
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button Content="Close" DockPanel.Dock="Right" IsCancel="True" Click="Close_Click" />
+            <TextBlock Text="{Binding EngineLabel}" VerticalAlignment="Center" Style="{StaticResource Hint}" />
+        </DockPanel>
+
+        <TabControl>
+            <!-- ================= Controllers ================= -->
+            <TabItem Header="Controllers">
+                <DockPanel Margin="6">
+                    <!-- Switch 1 controllers SSIM is leaving alone -->
+                    <GroupBox Header="Switch 1 controllers not managed by SSIM" DockPanel.Dock="Bottom"
+                              Visibility="{Binding HasDetected, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0">
+                                <Button Content="Enable" Click="Enable_Click" IsEnabled="{Binding HasDetectedSelection}"
+                                        ToolTip="Let SSIM manage it: player lights, rumble, motion, your choice of mode" />
+                                <Button Content="Simple mode" Margin="0,4,0,0" Click="SimpleMode_Click"
+                                        IsEnabled="{Binding HasDetectedSelection}"
+                                        ToolTip="Fix a controller another app left in full mode (all buttons lit in joy.cpl)" />
+                                <Button Content="Full mode" Margin="0,4,0,0" Click="FullMode_Click"
+                                        IsEnabled="{Binding HasDetectedSelection}"
+                                        ToolTip="The mode Steam and SDL emulators use for gyro" />
+                            </StackPanel>
+                            <ListView ItemsSource="{Binding Detected}" SelectedItem="{Binding SelectedDetected}" Height="76">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="Controller" Width="170" DisplayMemberBinding="{Binding Model}" />
+                                        <GridViewColumn Header="Bluetooth address" Width="130" DisplayMemberBinding="{Binding Address}" />
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                        </DockPanel>
+                    </GroupBox>
+
+                    <!-- Selected controller -->
+                    <GroupBox Header="Selected controller" DockPanel.Dock="Bottom"
+                              IsEnabled="{Binding HasSelection}" DataContext="{Binding Selected}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Name:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox Grid.Column="1" Text="{Binding Name}" MaxLength="40" Margin="0,2" />
+
+                            <TextBlock Grid.Row="1" Text="Player:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" Width="60" HorizontalAlignment="Left" Margin="0,2"
+                                      ItemsSource="{x:Static local:Choices.Slots}" SelectedItem="{Binding Slot}" />
+
+                            <TextBlock Grid.Row="2" Text="Shows up as:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" Width="190" HorizontalAlignment="Left" Margin="0,2"
+                                      ItemsSource="{x:Static local:Choices.OutputModes}" DisplayMemberPath="Label"
+                                      SelectedValuePath="Key" SelectedValue="{Binding OutputMode}" />
+
+                            <TextBlock Grid.Row="3" Text="Rumble:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,2">
+                                <Slider Width="160" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.25"
+                                        Value="{Binding Rumble, Delay=300}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding RumbleLabel}" Width="40" Margin="6,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Grid.RowSpan="4" Margin="8,0,0,0">
+                                <Button Content="Identify" Click="Identify_Click" ToolTip="Sweep its lights and buzz it" />
+                                <Button Content="Release" Margin="0,4,0,0" Click="Release_Click"
+                                        Visibility="{Binding IsSwitch1, Converter={StaticResource BoolToVis}}"
+                                        ToolTip="Stop managing this Switch 1 controller and hand it back to Windows" />
+                            </StackPanel>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- Connected controllers -->
+                    <Grid Margin="0,0,0,8">
+                        <ListView ItemsSource="{Binding Controllers}" SelectedItem="{Binding Selected}">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="P" Width="30" DisplayMemberBinding="{Binding Slot}" />
+                                    <GridViewColumn Header="Controller" Width="190" DisplayMemberBinding="{Binding Name}" />
+                                    <GridViewColumn Header="Conn" Width="50" DisplayMemberBinding="{Binding ShortTransport}" />
+                                    <GridViewColumn Header="Battery" Width="60" DisplayMemberBinding="{Binding ShortBattery}" />
+                                    <GridViewColumn Header="Mode" Width="100" DisplayMemberBinding="{Binding ShortMode}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock Style="{StaticResource Hint}" Margin="12,32,12,0" TextAlignment="Center"
+                                   IsHitTestVisible="False"
+                                   Visibility="{Binding HasControllers, Converter={StaticResource NotBoolToVis}}"
+                                   Text="No controllers. Press a button on a paired controller, hold sync to pair one, or plug it in with USB." />
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ================= Settings ================= -->
+            <TabItem Header="Settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="6">
+                        <Border BorderBrush="{x:Static SystemColors.ActiveBorderBrush}" BorderThickness="1" Padding="6" Margin="0,0,0,8"
+                                Background="{x:Static SystemColors.InfoBrush}"
+                                Visibility="{Binding RestartNeeded, Converter={StaticResource BoolToVis}}">
+                            <DockPanel>
+                                <Button Content="Restart engine" DockPanel.Dock="Right" Click="RestartEngine_Click" />
+                                <TextBlock Text="Restart the SSIM engine for this change to take effect." VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
+
+                        <GroupBox Header="New controllers">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Show up as:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox Width="190" ItemsSource="{x:Static local:Choices.OutputModes}" DisplayMemberPath="Label"
+                                          SelectedValuePath="Key" SelectedValue="{Binding DefaultMode}" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Bluetooth">
+                            <StackPanel>
+                                <CheckBox Content="Connect Switch 2 controllers over Bluetooth" IsChecked="{Binding Bluetooth}" />
+                                <CheckBox Content="Pair them to this PC (a button press reconnects them)" Margin="0,4,0,0"
+                                          IsChecked="{Binding PairBluetooth}" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="18,2,0,0"
+                                           Text="Pairing may replace the controller's pairing with a Switch console. Plug it into the console once to pair it back." />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Motion and rumble">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Content="Motion server for emulators (DSU), port" IsChecked="{Binding Dsu}" VerticalAlignment="Center" />
+                                    <TextBox Text="{Binding DsuPort}" Width="60" Margin="6,0,0,0" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Stop rumble a game leaves running after" VerticalAlignment="Center" />
+                                    <TextBox Text="{Binding RumbleSafety}" Width="40" Margin="6,0" />
+                                    <TextBlock Text="seconds (0 = never)" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Steam">
+                            <StackPanel>
+                                <CheckBox x:Name="SteamCheck" Content="Let Steam Input take over Switch controllers" />
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button x:Name="SteamApply" Content="Apply" Click="SteamApply_Click" />
+                                    <TextBlock x:Name="SteamStatus" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Startup">
+                            <CheckBox x:Name="AutostartCheck" Content="Show the tray icon when I sign in"
+                                      Checked="Autostart_Changed" Unchecked="Autostart_Changed" />
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

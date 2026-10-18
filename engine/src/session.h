@@ -23,7 +23,8 @@ public:
 // changes from the tray app. Shared by every controller family and transport.
 class SwitchSession : public ControllerSession {
 public:
-    SwitchSession(DeviceOps& ops, bool wired, std::string model, RumbleSink* rumble, int rumblePeriodMs);
+    SwitchSession(DeviceOps& ops, bool wired, std::string model, USHORT dinputPid, RumbleSink* rumble,
+                  int rumblePeriodMs);
     ~SwitchSession() override;
 
     // Reads identity, claims a slot and creates the virtual controller.
@@ -50,6 +51,7 @@ private:
     std::string m_model;
     RumbleSink* m_rumbleSink;
     int m_rumblePeriodMs;
+    USHORT m_dinputPid;
     InputForwarder m_fwd;
 
     std::mutex m_lock;

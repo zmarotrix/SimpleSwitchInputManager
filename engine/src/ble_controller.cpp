@@ -353,7 +353,8 @@ void BleController::Run()
         }
 
         ops = std::make_unique<Sw2DeviceOps>(*ch);
-        session = std::make_unique<SwitchSession>(*ops, false, "Pro Controller 2", m_vibration ? this : nullptr, 15);
+        session = std::make_unique<SwitchSession>(*ops, false, "Switch 2 Pro Controller", kVirtualPidSwitch2Pro,
+                                                  m_vibration ? this : nullptr, 15);
         session->Begin(65);
         decoder = std::make_unique<Sw2Decoder>(leftCal, rightCal, false);
         SwitchSession* sp = session.get();

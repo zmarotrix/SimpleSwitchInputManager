@@ -2,7 +2,7 @@
 
 ## Next
 
-- **Installer:** merge `refs/heads/installer` into `dev` and run the real install/uninstall test (needs the dev install removed first).
+- **Installer:** merged and tested on this PC (install, uninstall, same-version upgrade). Still to do: a clean Windows 11 VM test before release.
 
 ## Requested features
 

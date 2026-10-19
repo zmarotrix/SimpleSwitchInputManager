@@ -15,7 +15,8 @@
 
   <Package Name="Simple Switch Input Manager" Manufacturer="SSIM" Version="$(SsimVersion)"
            UpgradeCode="{740DF17B-6A1D-4B9F-88D4-59461C73FCB2}" Scope="perMachine" Language="1033">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Simple Switch Input Manager is already installed." />
+    <!-- Same-version rebuilds replace the installed copy instead of installing beside it. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of Simple Switch Input Manager is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <!-- Hide Windows Installer's own Apps entry: the one below opens SSIM's remove dialog
@@ -102,8 +103,9 @@
                               ThirdFailureActionType="restart" RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
         </ServiceInstall>
         <ServiceControl Id="SsimService" Name="SSIM" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-        <!-- The engine writes its log next to itself. -->
-        <RemoveFile Id="EngineLogs" Name="*.log" On="uninstall" />
+        <!-- Builds before 0.1 wrote their log (and a .log.old copy) next to the exe;
+             logs now live in %ProgramData%\SSIM with the settings. -->
+        <RemoveFile Id="EngineLogs" Name="*.log*" On="uninstall" />
       </Component>
       <Component Id="WinUHidDll">
         <File Source="$(StageDir)\WinUHid.dll" KeyPath="yes" />

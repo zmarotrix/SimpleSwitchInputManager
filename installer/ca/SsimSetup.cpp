@@ -256,7 +256,9 @@ static int RemoveFromStore(const wchar_t* storeName)
 // WinUHid device and driver package (same steps as the engine's install-driver)
 // ---------------------------------------------------------------------------
 
-static int ForEachWinUHidDevice(bool remove)
+enum class DeviceAction { Count, Remove, Restart };
+
+static int ForEachWinUHidDevice(DeviceAction action)
 {
     int count = 0;
     // Without DIGCF_PRESENT so removal also catches devices that are currently not started.
@@ -271,8 +273,19 @@ static int ForEachWinUHidDevice(bool remove)
             continue;
         }
         count++;
-        if (remove && !DiUninstallDevice(nullptr, set, &d, 0, nullptr))
+        if (action == DeviceAction::Remove && !DiUninstallDevice(nullptr, set, &d, 0, nullptr))
             Log(L"Removing a WinUHid device failed (0x%08lX)", GetLastError());
+        if (action == DeviceAction::Restart) {
+            // Same as "Disable / Enable" in Device Manager (pnputil /restart-device).
+            SP_PROPCHANGE_PARAMS pc = {};
+            pc.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+            pc.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+            pc.StateChange = DICS_PROPCHANGE;
+            pc.Scope = DICS_FLAG_CONFIGSPECIFIC;
+            if (!SetupDiSetClassInstallParamsW(set, &d, &pc.ClassInstallHeader, sizeof(pc)) ||
+                !SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, set, &d))
+                Log(L"Restarting the WinUHid device failed (0x%08lX)", GetLastError());
+        }
     }
     SetupDiDestroyDeviceInfoList(set);
     return count;
@@ -346,7 +359,7 @@ static bool CopyDriver(const fs::path& from, const fs::path& to)
 
 static void RemoveEverything(bool removeSettings)
 {
-    int n = ForEachWinUHidDevice(true);
+    int n = ForEachWinUHidDevice(DeviceAction::Remove);
     Log(L"Removed %d WinUHid device(s)", n);
     RemoveDriverPackages();
     RemoveFromStore(L"Root");
@@ -389,7 +402,7 @@ static bool SignAndInstallDriver(const fs::path& installDir)
     }  // the key container is deleted here
 
     fs::path inf = work / kDriverInf;
-    if (ForEachWinUHidDevice(false) == 0) {
+    if (ForEachWinUHidDevice(DeviceAction::Count) == 0) {
         if (!CreateWinUHidDevice(inf)) return false;
         Log(L"Created the WinUHid root device");
     }
@@ -402,14 +415,24 @@ static bool SignAndInstallDriver(const fs::path& installDir)
         return true;
     }
 
-    // The service starts right after this and exits if the driver isn't up yet, so wait for it.
-    for (int i = 0; i < 150; i++) {
+    // Wait for the driver to come up. On a fresh install the user-mode driver host
+    // sometimes doesn't attach on the device's first start; a device restart fixes
+    // that, so after a few seconds restart it once and keep waiting.
+    auto running = [] {
         HANDLE h = CreateFileW(L"\\\\.\\WinUHid", GENERIC_READ | GENERIC_WRITE,
                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-        if (h != INVALID_HANDLE_VALUE) {
-            CloseHandle(h);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        CloseHandle(h);
+        return true;
+    };
+    for (int i = 0; i < 150; i++) {
+        if (running()) {
             Log(L"WinUHid driver is running");
             return true;
+        }
+        if (i == 30) {
+            Log(L"WinUHid driver not up after 3 s; restarting the device");
+            ForEachWinUHidDevice(DeviceAction::Restart);
         }
         Sleep(100);
     }

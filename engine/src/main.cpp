@@ -48,9 +48,13 @@ static DWORD CALLBACK OnHidArrival(HCMNOTIFICATION, PVOID ctx, CM_NOTIFY_ACTION 
 
 static int RunLoop()
 {
+    // At boot (or right after install) the driver may still be starting: wait for it.
     if (!WinUHidAvailable()) {
-        Log("The WinUHid driver is not installed or not running (error %lu). Run the installer first.", GetLastError());
-        return 1;
+        Log("Waiting for the WinUHid driver (error %lu)...", GetLastError());
+        while (!WinUHidAvailable()) {
+            if (WaitForSingleObject(g_stopEvent, 2000) == WAIT_OBJECT_0) return 0;
+        }
+        Log("WinUHid driver is ready");
     }
     Config::Get().Load();
     GlobalSettings settings = Config::Get().Global();

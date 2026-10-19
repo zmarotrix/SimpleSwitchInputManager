@@ -51,5 +51,5 @@ if ($LASTEXITCODE) { throw 'service install failed' }
 
 Write-Host ''
 Write-Host 'Done. Plug in the controller over USB; it shows up in joy.cpl as "Switch 2 Pro Controller".' -ForegroundColor Green
-Write-Host "Log file: $dest\Switch2Pro.log"
+Write-Host "Log file: $env:ProgramData\SSIM\engine.log"
 if ($needReboot) { Write-Host 'HidHide asks for a restart before it can hide the raw controller.' -ForegroundColor Yellow }

@@ -1,5 +1,7 @@
 #include "common.h"
 
+#include <shlobj.h>
+
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
@@ -14,7 +16,14 @@ void LogInit(bool toConsole, bool toFile)
     if (!toFile) {
         return;
     }
-    std::wstring path = ExeDir() + L"\\Switch2Pro.log";
+    // Next to the settings in %ProgramData%\SSIM (Program Files is for the program itself).
+    std::wstring dir = L"C:\\ProgramData";
+    PWSTR base = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &base))) dir = base;
+    CoTaskMemFree(base);
+    dir += L"\\SSIM";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring path = dir + L"\\engine.log";
     // Keep one previous log around; truncate the current one each start.
     std::wstring old = path + L".old";
     MoveFileExW(path.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING);

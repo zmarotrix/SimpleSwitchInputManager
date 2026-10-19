@@ -1,0 +1,19 @@
+﻿<Project Sdk="WixToolset.Sdk/6.0.2">
+  <!-- Built by ..\build-installer.ps1, which fills $(StageDir) first. -->
+  <PropertyGroup>
+    <SsimVersion Condition="'$(SsimVersion)' == ''">0.1.0</SsimVersion>
+    <StageDir Condition="'$(StageDir)' == ''">$(MSBuildThisFileDirectory)..\stage</StageDir>
+    <OutputName>SSIM-$(SsimVersion)</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputPath>$(MSBuildThisFileDirectory)..\out\</OutputPath>
+    <DefineConstants>SsimVersion=$(SsimVersion);StageDir=$(StageDir)</DefineConstants>
+    <!-- English only; without this every locale's .wxl from the UI extension is built. -->
+    <Cultures>en-US</Cultures>
+    <!-- ICE43/ICE57 treat the Start menu as per-user; this is a per-machine install (ALLUSERS=1). -->
+    <SuppressIces>ICE43;ICE57</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+</Project>

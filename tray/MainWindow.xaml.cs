@@ -8,7 +8,7 @@ namespace Ssim.Tray;
 public partial class MainWindow : Window
 {
     // Name of the engine's Windows service.
-    private const string ServiceName = "Switch2ProPad";
+    private const string ServiceName = "SSIM";
 
     private bool _loading;
 

@@ -1,0 +1,223 @@
+<!--
+  Simple Switch Input Manager (SSIM) installer.
+
+  Installs to C:\Program Files\SSIM:
+    SSIM.Engine.exe   the engine, run as the "SSIM" Windows service
+    SSIM.exe          the tray app
+    WinUHid*.dll      virtual HID client libraries
+    driver\           the WinUHid driver package as built (unsigned)
+
+  SsimSetup.dll then signs a copy of the driver with a certificate made on this PC, trusts that
+  certificate, deletes its private key and installs the driver (see ..\ca\SsimSetup.cpp).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="Simple Switch Input Manager" Manufacturer="SSIM" Version="$(SsimVersion)"
+           UpgradeCode="{740DF17B-6A1D-4B9F-88D4-59461C73FCB2}" Scope="perMachine" Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Simple Switch Input Manager is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Hide Windows Installer's own Apps entry: the one below opens SSIM's remove dialog
+         (with "also delete my settings") instead of uninstalling straight away. -->
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
+
+    <!-- Set to 1 to also delete %ProgramData%\SSIM (the remove dialog's checkbox, or on the command line). -->
+    <Property Id="REMOVESETTINGS" Secure="yes" />
+
+    <Property Id="HIDHIDE_PRESENT">
+      <RegistrySearch Id="HidHideService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\HidHide"
+                      Name="Start" Type="raw" Bitness="always64" />
+    </Property>
+
+    <!-- The developer install (dev\install.ps1) would fight SSIM over the controllers and the driver. -->
+    <Property Id="DEV_SERVICE_PRESENT">
+      <RegistrySearch Id="DevService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\Switch2ProPad"
+                      Name="Start" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT DEV_SERVICE_PRESENT"
+            Message="A developer build of SSIM (the Switch2ProPad service) is installed. Remove it first with dev\uninstall.ps1 from an administrator PowerShell, then run this setup again." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SSIM">
+        <Directory Id="DRIVERFOLDER" Name="driver" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Simple Switch Input Manager">
+      <ComponentGroupRef Id="Engine" />
+      <ComponentGroupRef Id="Tray" />
+      <ComponentGroupRef Id="Driver" />
+      <ComponentGroupRef Id="DirectInputNames" />
+      <ComponentRef Id="AppsEntry" />
+    </Feature>
+
+    <UIRef Id="SSIM_UI" />
+
+    <!-- ===================================================================================== -->
+    <!-- Custom actions                                                                         -->
+    <!-- ===================================================================================== -->
+
+    <Binary Id="SsimSetupCA" SourceFile="$(StageDir)\SsimSetup.dll" />
+    <Binary Id="HidHideSetup" SourceFile="$(StageDir)\HidHide_x64.exe" />
+
+    <SetProperty Id="SsimSignAndInstall" Value="INSTALLDIR=[INSTALLFOLDER]" Before="SsimSignAndInstall" Sequence="execute" />
+    <CustomAction Id="SsimSignAndInstall" BinaryRef="SsimSetupCA" DllEntry="SignAndInstall"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="SsimInstallRollback" BinaryRef="SsimSetupCA" DllEntry="RemoveAll"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+
+    <SetProperty Id="SsimRemoveAll" Value="REMOVESETTINGS=[REMOVESETTINGS]" Before="SsimRemoveAll" Sequence="execute" />
+    <CustomAction Id="SsimRemoveAll" BinaryRef="SsimSetupCA" DllEntry="RemoveAll"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- Run from the install dialog (UI sequence); see InstallHidHide in SsimSetup.cpp. -->
+    <CustomAction Id="InstallHidHide" BinaryRef="SsimSetupCA" DllEntry="InstallHidHide"
+                  Execute="immediate" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- The driver must be in place before the service starts. -->
+      <Custom Action="SsimInstallRollback" Before="SsimSignAndInstall" Condition="NOT Installed" />
+      <Custom Action="SsimSignAndInstall" After="InstallFiles" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <!-- After the service has stopped (StopServices), before its files go. -->
+      <Custom Action="SsimRemoveAll" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- The tray app holds no files open, but close it so its exe can be replaced or removed. -->
+    <util:CloseApplication Id="CloseTray" Target="SSIM.exe" CloseMessage="yes" RebootPrompt="no" TerminateProcess="0" />
+  </Package>
+
+  <!-- ===================================================================================== -->
+  <!-- Files                                                                                  -->
+  <!-- ===================================================================================== -->
+
+  <Fragment>
+    <ComponentGroup Id="Engine" Directory="INSTALLFOLDER">
+      <Component Id="EngineExe">
+        <File Id="EngineExe" Source="$(StageDir)\Switch2Pro.exe" Name="SSIM.Engine.exe" KeyPath="yes" />
+        <ServiceInstall Id="SsimService" Name="SSIM" DisplayName="Simple Switch Input Manager"
+                        Description="Presents Nintendo Switch controllers as DirectInput, XInput or DualSense game controllers."
+                        Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Arguments="service">
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart" RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="SsimService" Name="SSIM" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+        <!-- The engine writes its log next to itself. -->
+        <RemoveFile Id="EngineLogs" Name="*.log" On="uninstall" />
+      </Component>
+      <Component Id="WinUHidDll">
+        <File Source="$(StageDir)\WinUHid.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="WinUHidDevsDll">
+        <File Source="$(StageDir)\WinUHidDevs.dll" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Tray" Directory="INSTALLFOLDER">
+      <Component Id="TrayExe">
+        <!-- All-users Start menu (per-machine install); ICE43/ICE57 are suppressed for it in SSIM.wixproj. -->
+        <File Id="SsimTrayExe" Source="$(StageDir)\tray\SSIM.exe" KeyPath="yes">
+          <Shortcut Id="SsimStartMenu" Directory="ProgramMenuFolder" Name="Simple Switch Input Manager"
+                    Description="Settings for your Switch controllers" WorkingDirectory="INSTALLFOLDER" />
+        </File>
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Driver" Directory="DRIVERFOLDER">
+      <Component Id="DriverInf">
+        <File Source="$(StageDir)\driver\WinUHidDriver.inf" KeyPath="yes" />
+      </Component>
+      <Component Id="DriverDll">
+        <File Source="$(StageDir)\driver\WinUHidDriver.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="DriverCat">
+        <File Source="$(StageDir)\driver\winuhiddriver.cat" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+  </Fragment>
+
+  <!-- Settings > Apps entry (see ARPSYSTEMCOMPONENT above). -->
+  <Fragment>
+    <Component Id="AppsEntry" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SSIM">
+        <RegistryValue Name="DisplayName" Type="string" Value="Simple Switch Input Manager" KeyPath="yes" />
+        <RegistryValue Name="DisplayVersion" Type="string" Value="[ProductVersion]" />
+        <RegistryValue Name="Publisher" Type="string" Value="SSIM" />
+        <RegistryValue Name="DisplayIcon" Type="string" Value="[INSTALLFOLDER]SSIM.exe" />
+        <RegistryValue Name="InstallLocation" Type="string" Value="[INSTALLFOLDER]" />
+        <RegistryValue Name="UninstallString" Type="string" Value="MsiExec.exe /I[ProductCode]" />
+        <RegistryValue Name="QuietUninstallString" Type="string" Value="MsiExec.exe /X[ProductCode] /qn" />
+        <RegistryValue Name="NoModify" Type="integer" Value="1" />
+        <RegistryValue Name="NoRepair" Type="integer" Value="1" />
+      </RegistryKey>
+    </Component>
+  </Fragment>
+
+  <!-- ===================================================================================== -->
+  <!-- DirectInput names and force feedback, same as dev\register-ffb.ps1                    -->
+  <!-- ===================================================================================== -->
+
+  <Fragment>
+    <?define OemKey = "SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM" ?>
+    <ComponentGroup Id="DirectInputNames" Directory="INSTALLFOLDER">
+      <!-- 0003-0005 are the Joy-Con outputs (left, right, pair). -->
+      <?foreach PAD in 0001;0002;0003;0004;0005 ?>
+      <Component Id="DInputPad$(PAD)">
+        <?if $(PAD) = 0001 ?>
+          <?define PadName = "Switch 2 Pro Controller" ?>
+        <?elseif $(PAD) = 0002 ?>
+          <?define PadName = "Switch 1 Pro Controller" ?>
+        <?elseif $(PAD) = 0003 ?>
+          <?define PadName = "Joy-Con (L)" ?>
+        <?elseif $(PAD) = 0004 ?>
+          <?define PadName = "Joy-Con (R)" ?>
+        <?else?>
+          <?define PadName = "Joy-Con pair" ?>
+        <?endif?>
+        <RemoveRegistryKey Root="HKLM" Key="$(OemKey)\VID_1209&amp;PID_$(PAD)" Action="removeOnUninstall" />
+        <RegistryKey Root="HKLM" Key="$(OemKey)\VID_1209&amp;PID_$(PAD)">
+          <RegistryValue Name="OEMName" Type="string" Value="$(PadName)" KeyPath="yes" />
+          <!-- Force feedback through Windows' HID PID driver (pid.dll) -->
+          <RegistryKey Key="OEMForceFeedback">
+            <RegistryValue Name="CLSID" Type="string" Value="{EEC6993A-B3FD-11D2-A916-00C04FB98638}" />
+            <!-- DIFFDEVICEATTRIBUTES: flags 0, sample period 1000 us, min time resolution 1000 us -->
+            <RegistryValue Name="Attributes" Type="binary" Value="00000000E8030000E8030000" />
+            <!-- DIEFFECTATTRIBUTES: PID usage, DIEFT type, static params 0x1FF, dynamic params 0x1FF, coordinates 0x30 -->
+            <RegistryKey Key="Effects\{13541C20-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Constant" />
+              <RegistryValue Name="Attributes" Type="binary" Value="2600000001060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C21-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Ramp" />
+              <RegistryValue Name="Attributes" Type="binary" Value="2700000002060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C22-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Square Wave" />
+              <RegistryValue Name="Attributes" Type="binary" Value="3000000003060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C23-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Sine Wave" />
+              <RegistryValue Name="Attributes" Type="binary" Value="3100000003060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C24-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Triangle Wave" />
+              <RegistryValue Name="Attributes" Type="binary" Value="3200000003060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C25-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Sawtooth Up" />
+              <RegistryValue Name="Attributes" Type="binary" Value="3300000003060000FF010000FF01000030000000" />
+            </RegistryKey>
+            <RegistryKey Key="Effects\{13541C26-8E33-11D0-9AD0-00A0C9A06E35}">
+              <RegistryValue Type="string" Value="Sawtooth Down" />
+              <RegistryValue Name="Attributes" Type="binary" Value="3400000003060000FF010000FF01000030000000" />
+            </RegistryKey>
+          </RegistryKey>
+        </RegistryKey>
+        <?undef PadName ?>
+      </Component>
+      <?endforeach?>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

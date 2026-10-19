@@ -30,7 +30,7 @@
 #include <memory>
 #include <mutex>
 
-static const wchar_t kServiceName[] = L"Switch2ProPad";
+static const wchar_t kServiceName[] = L"SSIM";
 static HANDLE g_stopEvent;
 static SERVICE_STATUS_HANDLE g_statusHandle;
 static SERVICE_STATUS g_status;
@@ -184,7 +184,7 @@ static int InstallService()
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
     if (!scm) return Log("Open service manager failed (%lu) - run as administrator", GetLastError()), 1;
     std::wstring cmd = L"\"" + ExePath() + L"\" service";
-    SC_HANDLE svc = CreateServiceW(scm, kServiceName, L"Switch 2 Pro Controller (DirectInput)", SERVICE_ALL_ACCESS,
+    SC_HANDLE svc = CreateServiceW(scm, kServiceName, L"Simple Switch Input Manager", SERVICE_ALL_ACCESS,
                                    SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, cmd.c_str(),
                                    nullptr, nullptr, nullptr, nullptr, nullptr);
     if (!svc && GetLastError() == ERROR_SERVICE_EXISTS) svc = OpenServiceW(scm, kServiceName, SERVICE_ALL_ACCESS);

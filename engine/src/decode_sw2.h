@@ -21,5 +21,6 @@ private:
     bool m_wired;
     uint32_t m_lastImuTs = 0;
     uint64_t m_imuClock = 0;
+    float m_mvAvg = 0;  // smoothed battery voltage: the raw reading jumps with load (rumble, radio)
     LARGE_INTEGER m_qpf{}, m_lastQpc{};
 };

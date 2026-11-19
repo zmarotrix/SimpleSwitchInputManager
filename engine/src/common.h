@@ -23,6 +23,8 @@ constexpr USHORT kVirtualPidSwitch1Pro = 0x0002;  // "Switch 1 Pro Controller"
 constexpr USHORT kVirtualPidJoyConL = 0x0003;     // "Joy-Con (L)"
 constexpr USHORT kVirtualPidJoyConR = 0x0004;     // "Joy-Con (R)"
 constexpr USHORT kVirtualPidJoyConPair = 0x0005;  // "Joy-Con pair"
+constexpr USHORT kVirtualPidN64 = 0x0006;         // "N64 Controller"
+constexpr uint16_t kN64Pid = 0x2019;              // Nintendo Switch Online N64 controller (Bluetooth)
 
 constexpr int kMaxControllers = 4;
 

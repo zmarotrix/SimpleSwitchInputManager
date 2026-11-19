@@ -113,6 +113,7 @@ SessionStatus SwitchSession::Status()
     s.slot = m_slot;
     s.mode = m_settings.mode;
     s.battery = m_fwd.Battery();
+    s.charging = m_fwd.Charging();
     s.rumble = m_settings.rumble;
     s.bodyColor = m_bodyColor;
     s.kind = m_kind;

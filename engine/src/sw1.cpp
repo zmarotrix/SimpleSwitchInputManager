@@ -42,12 +42,29 @@ void ParseCal(const uint8_t* d, bool leftOrder, StickCal& out)
     out.minX = std::max(1, (int)(minX * 0.7f)); out.minY = std::max(1, (int)(minY * 0.7f));
 }
 
+// The Switch Online N64 controller reuses Pro Controller bits for its own buttons
+// (captured from the controller): C-Up = Y, C-Left = X, C-Down = ZR, C-Right = Minus,
+// Z = ZL, ZR = left-stick click. A, B, L, R, Start (+), Home, Capture and the
+// D-pad use their usual bits.
+constexpr uint32_t kN64CUp = kBtnY, kN64CLeft = kBtnX, kN64CDown = kBtnZR, kN64CRight = kBtnMinus;
+constexpr uint32_t kN64Z = kBtnZL, kN64ZR = kBtnLStick;
+
+uint32_t MapN64(uint32_t raw)
+{
+    constexpr uint32_t same = kBtnA | kBtnB | kBtnL | kBtnR | kBtnPlus | kBtnHome | kBtnCapture | kBtnUp |
+                              kBtnDown | kBtnLeft | kBtnRight;
+    uint32_t b = raw & same;
+    if (raw & kN64Z) b |= kBtnZL;
+    if (raw & kN64ZR) b |= kBtnZR;
+    return b;
+}
+
 }  // namespace
 
 class Sw1Decoder {
 public:
-    Sw1Decoder(const StickCal& l, const StickCal& r, bool rightJoyCon = false)
-        : m_left(l), m_right(r), m_rightJoyCon(rightJoyCon)
+    Sw1Decoder(const StickCal& l, const StickCal& r, bool rightJoyCon = false, bool n64 = false)
+        : m_left(l), m_right(r), m_rightJoyCon(rightJoyCon), m_n64(n64)
     {
         QueryPerformanceFrequency(&m_qpf);
     }
@@ -69,7 +86,18 @@ public:
         // Battery: high nibble of byte 2, level 0..8 in steps of 2.
         int level = (r[2] >> 5) & 0x07;
         in.batteryPercent = std::min(100, level * 25);
+        in.charging = (r[2] >> 4) & 0x01;
         in.wired = false;
+        if (m_n64) {
+            in.buttons = MapN64(in.buttons);
+            in.lt = (in.buttons & kBtnZL) ? 1.f : 0.f;
+            in.rt = (in.buttons & kBtnZR) ? 1.f : 0.f;
+            // C-buttons drive the right stick, as Switch Online and N64 emulators expect.
+            uint32_t raw = r[3] | (r[4] << 8) | (r[5] << 16);
+            in.rx = (raw & kN64CRight ? 1.f : 0.f) - (raw & kN64CLeft ? 1.f : 0.f);
+            in.ry = (raw & kN64CUp ? 1.f : 0.f) - (raw & kN64CDown ? 1.f : 0.f);
+            return in;  // no motion sensors
+        }
 
         // Three IMU samples per report; use the newest. Raw axes -> DSU convention
         // (derived from SDL's mapping: SDL = (-Y, Z, -X); DSU accel = -SDL, gyro = (x, -y, -z)).
@@ -102,6 +130,7 @@ public:
 private:
     StickCal m_left, m_right;
     bool m_rightJoyCon;
+    bool m_n64;
     LARGE_INTEGER m_qpf{};
 };
 
@@ -133,7 +162,8 @@ std::vector<Sw1DeviceInfo> FindSwitch1Controllers()
         const char* model;
     } kinds[] = {{L"_VID&0002057E_PID&2009", 0x2009, "Switch 1 Pro Controller"},
                  {L"_VID&0002057E_PID&2006", 0x2006, "Switch 1 Joy-Con (L)"},
-                 {L"_VID&0002057E_PID&2007", 0x2007, "Switch 1 Joy-Con (R)"}};
+                 {L"_VID&0002057E_PID&2007", 0x2007, "Switch 1 Joy-Con (R)"},
+                 {L"_VID&0002057E_PID&2019", kN64Pid, "N64 Controller"}};
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
     std::vector<Sw1DeviceInfo> out;
@@ -146,7 +176,7 @@ std::vector<Sw1DeviceInfo> FindSwitch1Controllers()
             info.pid = k.pid;
             info.model = k.model;
             // The Bluetooth address is the tail of the parent BTHENUM instance:
-            // ...\7&3562C725&0&E8DA203C7A51_C00000000
+            // ...\7&3562C725&0&112233445566_C00000000
             DEVINST node, parent;
             if (CM_Locate_DevNodeW(&node, (DEVINSTID_W)info.hidInstanceId.c_str(), CM_LOCATE_DEVNODE_NORMAL) ==
                     CR_SUCCESS &&
@@ -338,6 +368,24 @@ bool Sw1Controller::SendRumble(const RumbleCommand& c)
 
 void Sw1Controller::HandleReport(const uint8_t* r, DWORD n)
 {
+    if (r[0] == 0x3F && m_decoder) {
+        // The N64 controller falls back to simple mode after setup: ask for full
+        // mode again (no reply wait: this is the thread that delivers replies).
+        ULONGLONG now = GetTickCount64();
+        if (now - m_lastModeRequest < 1000) return;
+        m_lastModeRequest = now;
+        uint8_t pkt[kReportLen] = {0x01};
+        {
+            std::lock_guard<std::mutex> lock(m_writeLock);
+            pkt[1] = m_counter++ & 0x0F;
+            memcpy(pkt + 2, m_rumble, 8);
+        }
+        pkt[10] = 0x03;
+        pkt[11] = 0x30;
+        Write(pkt, sizeof(pkt));
+        Log("%s %s: back in simple mode; asking for full mode again", m_info.model, m_info.address.c_str());
+        return;
+    }
     if (r[0] == 0x30 && n >= 49) {
         if (!m_decoder) return;
         if (m_session) {
@@ -395,8 +443,8 @@ void Sw1Controller::Run()
     if (haveUser && user[11] == 0xB2 && user[12] == 0xA1) ParseCal(user + 13, false, right);
     Log("  stick calibration: %s", haveFactory || haveUser ? "read" : "defaults");
 
-    bool joycon = m_info.pid != 0x2009;
-    Sw1Decoder decoder(left, right, m_info.pid == 0x2007);
+    bool joycon = m_info.pid == 0x2006 || m_info.pid == 0x2007;
+    Sw1Decoder decoder(left, right, m_info.pid == 0x2007, m_info.pid == kN64Pid);
     m_decoder = &decoder;
     std::unique_ptr<SwitchSession> session;
     std::unique_ptr<Sw1JoyCon> unit;
@@ -406,7 +454,8 @@ void Sw1Controller::Run()
         JoyCons::Add(unit.get());
         m_joycon = unit.get();
     } else {
-        session = std::make_unique<SwitchSession>(*this, false, m_info.model, kVirtualPidSwitch1Pro, this, 40);
+        USHORT vpid = m_info.pid == kN64Pid ? kVirtualPidN64 : kVirtualPidSwitch1Pro;
+        session = std::make_unique<SwitchSession>(*this, false, m_info.model, vpid, this, 40);
         session->Begin(66);
         m_session = session.get();
     }

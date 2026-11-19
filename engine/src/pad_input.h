@@ -14,6 +14,7 @@ struct PadInput {
     float gyro[3] = {};                    // deg/s, DS4 axes (pitch, yaw, roll)
     uint64_t motionTimestampUs = 0;
     int batteryPercent = 100;
+    bool charging = false;
     bool wired = false;
 };
 

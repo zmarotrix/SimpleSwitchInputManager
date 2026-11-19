@@ -1,6 +1,7 @@
 #include "forwarder.h"
 
 #include "dsu.h"
+#include "protocol.h"
 
 #include <algorithm>
 #include <cmath>
@@ -92,6 +93,33 @@ void InputForwarder::Process(PadInput in)
         for (int i = 0; i < 3; i++) in.gyro[i] -= m_bias.bias[i];
     }
     m_battery = in.batteryPercent;
+    m_charging = in.charging;
+
+    // Stick recentering: shift each axis by its captured rest position and stretch
+    // the shorter side so full deflection still reaches 1.
+    float* axes[4] = {&in.lx, &in.ly, &in.rx, &in.ry};
+    if (m_recenter.exchange(false)) {
+        for (int i = 0; i < 4; i++) {
+            float v = *axes[i] + m_stickOffset[i];  // undo the previous offset
+            m_stickOffset[i] = std::fabs(v) < 0.5f ? v : 0.f;  // a stick held far over is being used, not resting
+        }
+        Log("Sticks recentered (offsets %.2f %.2f / %.2f %.2f)", m_stickOffset[0], m_stickOffset[1], m_stickOffset[2],
+            m_stickOffset[3]);
+    }
+    for (int i = 0; i < 4; i++) {
+        float off = m_stickOffset[i];
+        if (off == 0.f) continue;
+        float d = *axes[i] - off;
+        *axes[i] = std::clamp(d >= 0 ? d / (1.f - off) : d / (1.f + off), -1.f, 1.f);
+    }
+    if (s_swapFaceButtons) {
+        uint32_t b = in.buttons & ~(kBtnA | kBtnB | kBtnX | kBtnY);
+        if (in.buttons & kBtnA) b |= kBtnB;
+        if (in.buttons & kBtnB) b |= kBtnA;
+        if (in.buttons & kBtnX) b |= kBtnY;
+        if (in.buttons & kBtnY) b |= kBtnX;
+        in.buttons = b;
+    }
 
     std::lock_guard<std::mutex> lock(m_lock);
     if (m_out) m_out->Submit(in);

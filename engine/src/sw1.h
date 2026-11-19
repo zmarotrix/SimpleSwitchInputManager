@@ -10,7 +10,8 @@
 #include <thread>
 #include <vector>
 
-// Switch 1 controllers on Bluetooth (classic HID): Pro Controller, Joy-Con L/R.
+// Switch 1 controllers on Bluetooth (classic HID): Pro Controller, Joy-Con L/R,
+// and the Switch Online N64 controller.
 // SSIM only lists these until the user enables one ("managed" in the config);
 // an enabled controller is hidden from games, driven in full mode, and put
 // back exactly as it was (simple mode, visible) when released.
@@ -18,7 +19,7 @@
 struct Sw1DeviceInfo {
     std::wstring hidPath;
     std::wstring hidInstanceId;
-    std::string address;  // Bluetooth address, "E8DA203C7A51"
+    std::string address;  // Bluetooth address, "112233445566"
     uint16_t pid = 0;
     const char* model = "";
     std::string Id() const { return "SW1-" + address; }
@@ -70,6 +71,7 @@ private:
     std::mutex m_writeLock;
     std::mutex m_subLock;
     uint8_t m_counter = 0;
+    ULONGLONG m_lastModeRequest = 0;
     uint8_t m_rumble[8] = {0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40};  // neutral
 
     // Subcommand replies: while the input loop runs it hands 0x21 reports over here.

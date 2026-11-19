@@ -29,7 +29,7 @@ During installation:
    - It signs a temporary copy of `WinUHidDriver.dll` and `winuhiddriver.cat` with `SignerSignEx2` from Windows' `mssign32.dll`.
    - It adds the certificate to `LocalMachine\Root` and `LocalMachine\TrustedPublisher`.
    - It deletes the private key, then installs the driver and creates the `Root\WinUHid` device.
-3. **DirectInput names:** it registers the names and force-feedback entries for VID 1209, PIDs 0001 to 0005. These are the same entries as `dev\register-ffb.ps1`.
+3. **DirectInput names:** it registers the names and force-feedback entries for VID 1209, PIDs 0001 to 0006. These are the same entries as `dev\register-ffb.ps1`.
 4. **Service:** it starts the `SSIM` service. The last dialog offers to launch the tray app.
 
 ## Uninstalling

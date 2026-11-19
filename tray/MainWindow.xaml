@@ -37,35 +37,12 @@
             <!-- ================= Controllers ================= -->
             <TabItem Header="Controllers">
                 <DockPanel Margin="6">
-                    <!-- Switch 1 controllers SSIM is leaving alone -->
-                    <GroupBox Header="Switch 1 controllers not managed by SSIM" DockPanel.Dock="Bottom"
-                              Visibility="{Binding HasDetected, Converter={StaticResource BoolToVis}}">
-                        <DockPanel>
-                            <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0">
-                                <Button Content="Enable" Click="Enable_Click" IsEnabled="{Binding HasDetectedSelection}"
-                                        ToolTip="Let SSIM manage it: player lights, rumble, motion, your choice of mode" />
-                                <Button Content="Simple mode" Margin="0,4,0,0" Click="SimpleMode_Click"
-                                        IsEnabled="{Binding HasDetectedSelection}"
-                                        ToolTip="Fix a controller another app left in full mode (all buttons lit in joy.cpl)" />
-                                <Button Content="Full mode" Margin="0,4,0,0" Click="FullMode_Click"
-                                        IsEnabled="{Binding HasDetectedSelection}"
-                                        ToolTip="The mode Steam and SDL emulators use for gyro" />
-                            </StackPanel>
-                            <ListView ItemsSource="{Binding Detected}" SelectedItem="{Binding SelectedDetected}" Height="76">
-                                <ListView.View>
-                                    <GridView>
-                                        <GridViewColumn Header="Controller" Width="170" DisplayMemberBinding="{Binding Model}" />
-                                        <GridViewColumn Header="Bluetooth address" Width="130" DisplayMemberBinding="{Binding Address}" />
-                                    </GridView>
-                                </ListView.View>
-                            </ListView>
-                        </DockPanel>
-                    </GroupBox>
-
                     <!-- Selected controller -->
                     <GroupBox Header="Selected controller" DockPanel.Dock="Bottom"
                               IsEnabled="{Binding HasSelection}" DataContext="{Binding Selected}">
                         <Grid>
+                        <!-- A controller SSIM manages -->
+                        <Grid Visibility="{Binding IsManaged, Converter={StaticResource BoolToVis}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
@@ -99,6 +76,8 @@
 
                             <StackPanel Grid.Column="2" Grid.RowSpan="4" Margin="8,0,0,0">
                                 <Button Content="Identify" Click="Identify_Click" ToolTip="Sweep its lights and buzz it" />
+                                <Button Content="Recenter" Margin="0,4,0,0" Click="Recenter_Click"
+                                        ToolTip="Let go of both sticks, then click: their resting position becomes center (until it reconnects)" />
                                 <Button Content="Release" Margin="0,4,0,0" Click="Release_Click"
                                         Visibility="{Binding IsSwitch1, Converter={StaticResource BoolToVis}}"
                                         ToolTip="Stop managing this Switch 1 controller and hand it back to Windows" />
@@ -110,14 +89,38 @@
                                         ToolTip="Combine with a Joy-Con of the other side into one controller" />
                             </StackPanel>
                         </Grid>
+
+                        <!-- A Switch 1-family controller SSIM is leaving alone -->
+                        <DockPanel Visibility="{Binding IsUnmanaged, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                            <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0">
+                                <Button Content="Enable" Click="Enable_Click"
+                                        ToolTip="Let SSIM manage it: player lights, rumble, motion, your choice of mode" />
+                                <Button Content="Simple mode" Margin="0,4,0,0" Click="SimpleMode_Click"
+                                        ToolTip="Fix a controller another app left in full mode (all buttons lit in joy.cpl)" />
+                                <Button Content="Full mode" Margin="0,4,0,0" Click="FullMode_Click"
+                                        ToolTip="The mode Steam and SDL emulators use for gyro" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="SSIM is leaving this controller alone, so Windows and games see it as it is. Enable it to give it a player light, rumble and your choice of mode." />
+                        </DockPanel>
+                        </Grid>
                     </GroupBox>
 
                     <!-- Connected controllers -->
                     <Grid Margin="0,0,0,8">
                         <ListView ItemsSource="{Binding Controllers}" SelectedItem="{Binding Selected}">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsManaged}" Value="False">
+                                            <Setter Property="Foreground" Value="{x:Static SystemColors.GrayTextBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListView.ItemContainerStyle>
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="P" Width="30" DisplayMemberBinding="{Binding Slot}" />
+                                    <GridViewColumn Header="P" Width="30" DisplayMemberBinding="{Binding SlotText}" />
                                     <GridViewColumn Header="Controller" Width="190" DisplayMemberBinding="{Binding Name}" />
                                     <GridViewColumn Header="Conn" Width="50" DisplayMemberBinding="{Binding ShortTransport}" />
                                     <GridViewColumn Header="Battery" Width="60" DisplayMemberBinding="{Binding ShortBattery}" />
@@ -151,6 +154,14 @@
                                 <TextBlock Text="Show up as:" VerticalAlignment="Center" Margin="0,0,8,0" />
                                 <ComboBox Width="190" ItemsSource="{x:Static local:Choices.OutputModes}" DisplayMemberPath="Label"
                                           SelectedValuePath="Key" SelectedValue="{Binding DefaultMode}" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Buttons">
+                            <StackPanel>
+                                <CheckBox Content="Swap A/B and X/Y" IsChecked="{Binding SwapFaceButtons}" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="18,2,0,0" TextWrapping="Wrap"
+                                           Text="Off: buttons match by position, so Nintendo B is Xbox A. On: they match by label, so Nintendo A is Xbox A. Applies to all controllers." />
                             </StackPanel>
                         </GroupBox>
 

@@ -16,6 +16,7 @@ struct SessionStatus {
     int slot = 0;           // player 1..8, 0 = none
     OutputMode mode = OutputMode::DirectInput;
     int battery = -1;       // percent, -1 unknown
+    bool charging = false;
     float rumble = 1.0f;
     std::string bodyColor;  // "#RRGGBB"
     std::string kind = "pro";          // "pro", "joycon" (one Joy-Con) or "joyconPair"
@@ -31,6 +32,8 @@ public:
     virtual void SetRumbleStrength(float s) = 0;
     virtual void SetName(const std::string& name) = 0;
     virtual void Identify() = 0;
+    // Takes the sticks' current resting position as center until the controller reconnects.
+    virtual void Recenter() = 0;
     // Called by the hub when this controller's slot changes (also on swaps).
     virtual void ApplySlot(int slot) = 0;
 };

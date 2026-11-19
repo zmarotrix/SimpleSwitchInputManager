@@ -10,6 +10,7 @@
 #include "common.h"
 
 #include "ble_controller.h"
+#include "forwarder.h"
 #include "joycon.h"
 #include "sw1.h"
 #include "usb_controller.h"
@@ -57,6 +58,7 @@ static int RunLoop()
         Log("WinUHid driver is ready");
     }
     Config::Get().Load();
+    InputForwarder::SetSwapFaceButtons(Config::Get().Global().swapFaceButtons);
     GlobalSettings settings = Config::Get().Global();
 
     bool hide = HidHide::Available() && HidHide::Prepare();

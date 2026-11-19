@@ -46,6 +46,11 @@ public partial class MainWindow : Window
         if (Item<ControllerVm>(sender) is { } c) Show(await App.Engine.IdentifyAsync(c.Serial));
     }
 
+    private async void Recenter_Click(object sender, RoutedEventArgs e)
+    {
+        if (Item<ControllerVm>(sender) is { } c) Show(await App.Engine.RecenterAsync(c.Serial));
+    }
+
     private async void Release_Click(object sender, RoutedEventArgs e)
     {
         if (Item<ControllerVm>(sender) is { } c) Show(await App.Engine.SetControllerAsync(c.Serial, "managed", false));
@@ -69,24 +74,21 @@ public partial class MainWindow : Window
                 Title, MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private DetectedVm? SelectedDetected => ((MainVm)DataContext).SelectedDetected;
-
     private async void Enable_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedDetected is not { } d) return;
-        Show(await App.Engine.SetControllerAsync(d.Id, "managed", true));
+        if (Item<ControllerVm>(sender) is { } c) Show(await App.Engine.SetControllerAsync(c.Serial, "managed", true));
     }
 
     private async void SimpleMode_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedDetected is { } d)
-            Show(await App.Engine.SendAsync(new JsonObject { ["cmd"] = "switch1Mode", ["id"] = d.Id, ["mode"] = "simple" }));
+        if (Item<ControllerVm>(sender) is { } c)
+            Show(await App.Engine.SendAsync(new JsonObject { ["cmd"] = "switch1Mode", ["id"] = c.Serial, ["mode"] = "simple" }));
     }
 
     private async void FullMode_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedDetected is { } d)
-            Show(await App.Engine.SendAsync(new JsonObject { ["cmd"] = "switch1Mode", ["id"] = d.Id, ["mode"] = "full" }));
+        if (Item<ControllerVm>(sender) is { } c)
+            Show(await App.Engine.SendAsync(new JsonObject { ["cmd"] = "switch1Mode", ["id"] = c.Serial, ["mode"] = "full" }));
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Hide();

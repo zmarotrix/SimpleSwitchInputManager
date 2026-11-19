@@ -24,6 +24,7 @@ struct GlobalSettings {
     int dsuPort = 26760;
     int rumbleSafetySeconds = 20;  // stop rumble a game leaves untouched this long (0 = never)
     bool combineJoyCons = true;    // pair a left and a right Joy-Con into one controller
+    bool swapFaceButtons = false;  // A/B and X/Y follow the Nintendo labels instead of positions
 };
 
 // Settings persisted in %ProgramData%\SSIM\config.json, keyed by controller

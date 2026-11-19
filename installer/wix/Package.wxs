@@ -164,8 +164,8 @@
   <Fragment>
     <?define OemKey = "SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM" ?>
     <ComponentGroup Id="DirectInputNames" Directory="INSTALLFOLDER">
-      <!-- 0003-0005 are the Joy-Con outputs (left, right, pair). -->
-      <?foreach PAD in 0001;0002;0003;0004;0005 ?>
+      <!-- 0003-0005 are the Joy-Con outputs (left, right, pair), 0006 the N64 controller. -->
+      <?foreach PAD in 0001;0002;0003;0004;0005;0006 ?>
       <Component Id="DInputPad$(PAD)">
         <?if $(PAD) = 0001 ?>
           <?define PadName = "Switch 2 Pro Controller" ?>
@@ -175,8 +175,10 @@
           <?define PadName = "Joy-Con (L)" ?>
         <?elseif $(PAD) = 0004 ?>
           <?define PadName = "Joy-Con (R)" ?>
-        <?else?>
+        <?elseif $(PAD) = 0005 ?>
           <?define PadName = "Joy-Con pair" ?>
+        <?else?>
+          <?define PadName = "N64 Controller" ?>
         <?endif?>
         <RemoveRegistryKey Root="HKLM" Key="$(OemKey)\VID_1209&amp;PID_$(PAD)" Action="removeOnUninstall" />
         <RegistryKey Root="HKLM" Key="$(OemKey)\VID_1209&amp;PID_$(PAD)">

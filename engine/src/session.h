@@ -45,6 +45,7 @@ public:
     void SetRumbleStrength(float s) override;
     void SetName(const std::string& name) override;
     void Identify() override;
+    void Recenter() override { m_fwd.Recenter(); }
     void ApplySlot(int slot) override;
 
 private:

@@ -2,7 +2,8 @@
 
 ## Next
 
-- **Installer:** merged and tested on this PC (install, uninstall, same-version upgrade). Still to do: a clean Windows 11 VM test before release.
+- **Installer:** tested on the development PC (install, uninstall, same-version upgrade). Still to do: a clean Windows 11 VM test.
+- **N64 controller:** Home and Capture reported not working; the engine passes both through, so check what the controller sends.
 
 ## Requested features
 
@@ -36,3 +37,4 @@ Joy-Con 2s have an optical mouse sensor on the rail side.
 - Wired (USB) Switch 1 Pro Controller: needs its USB handshake.
 - Switch 1 motion: uses SDL's default scale, not each controller's factory IMU calibration.
 - A released Switch 1 controller keeps its last player light until it reconnects.
+- Switch 2 battery percent comes from a curve fitted to one controller's full-charge voltage (about 3.72 V); check it against more controllers.

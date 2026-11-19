@@ -111,6 +111,9 @@ public sealed class EngineClient : IDisposable
     public Task<JsonObject> IdentifyAsync(string serial) =>
         SendAsync(new JsonObject { ["cmd"] = "identify", ["serial"] = serial });
 
+    public Task<JsonObject> RecenterAsync(string serial) =>
+        SendAsync(new JsonObject { ["cmd"] = "recenter", ["serial"] = serial });
+
     private async Task WriteAsync(JsonObject msg, CancellationToken ct)
     {
         var pipe = _pipe ?? throw new IOException("not connected");

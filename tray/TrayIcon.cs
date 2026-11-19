@@ -41,11 +41,11 @@ public sealed class TrayIcon : IDisposable
         {
             menu.Items.Add(new ToolStripMenuItem("Engine not running") { Enabled = false });
         }
-        else if (_vm.Controllers.Count == 0)
+        else if (!_vm.Managed.Any())
         {
             menu.Items.Add(new ToolStripMenuItem("No controllers connected") { Enabled = false });
         }
-        foreach (var c in _vm.Controllers.OrderBy(c => c.Slot))
+        foreach (var c in _vm.Managed.OrderBy(c => c.Slot))
         {
             var item = new ToolStripMenuItem(c.Summary);
             item.Click += (_, _) => _ = App.Engine.IdentifyAsync(c.Serial);
@@ -60,9 +60,9 @@ public sealed class TrayIcon : IDisposable
     public void UpdateTooltip()
     {
         string text = _vm.EngineConnected
-            ? _vm.Controllers.Count == 0
+            ? !_vm.Managed.Any()
                 ? "SSIM: no controllers"
-                : "SSIM: " + string.Join(", ", _vm.Controllers.OrderBy(c => c.Slot).Select(c => $"P{c.Slot} {c.Battery}%"))
+                : "SSIM: " + string.Join(", ", _vm.Managed.OrderBy(c => c.Slot).Select(c => $"P{c.Slot} {c.Battery}%"))
             : "SSIM: engine not running";
         _icon.Text = text.Length > 63 ? text[..63] : text;  // NotifyIcon limit
     }

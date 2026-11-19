@@ -38,7 +38,7 @@ public static class Choices
     public static readonly int[] Slots = { 1, 2, 3, 4, 5, 6, 7, 8 };
 }
 
-/// <summary>A controller SSIM is driving right now.</summary>
+/// <summary>A controller SSIM is driving, or a Switch 1-family controller it is leaving alone.</summary>
 public sealed class ControllerVm : Observable
 {
     private readonly EngineClient _engine;
@@ -85,8 +85,19 @@ public sealed class ControllerVm : Observable
             Raise(nameof(ShortBattery));
         }
     }
-    public string BatteryLabel => Battery < 0 ? "Battery —" : $"Battery {Battery}%";
-    public string ShortBattery => Battery < 0 ? "—" : $"{Battery}%";
+    private bool _charging;
+    public bool Charging
+    {
+        get => _charging;
+        private set
+        {
+            if (!Set(ref _charging, value)) return;
+            Raise(nameof(BatteryLabel));
+            Raise(nameof(ShortBattery));
+        }
+    }
+    public string BatteryLabel => Battery < 0 ? "Battery —" : $"Battery {Battery}%{(Charging ? ", charging" : "")}";
+    public string ShortBattery => Battery < 0 ? "—" : Charging ? $"{Battery}% ⚡" : $"{Battery}%";
 
     private int _slot;
     public int Slot
@@ -96,10 +107,12 @@ public sealed class ControllerVm : Observable
         {
             if (!Set(ref _slot, value)) return;
             Raise(nameof(SlotLabel));
+            Raise(nameof(SlotText));
             if (!Applying) _ = _engine.SetControllerAsync(Serial, "slot", value);
         }
     }
     public string SlotLabel => Slot > 0 ? $"Player {Slot}" : "No player slot";
+    public string SlotText => IsManaged && Slot > 0 ? Slot.ToString() : "—";
 
     private string _outputMode = "dinput";
     public string OutputMode
@@ -112,7 +125,7 @@ public sealed class ControllerVm : Observable
             if (!Applying) _ = _engine.SetControllerAsync(Serial, "outputMode", value);
         }
     }
-    public string ShortMode => OutputMode switch { "xinput" => "XInput", "dualsense" => "DualSense", _ => "DirectInput" };
+    public string ShortMode => !IsManaged ? "Not managed" : OutputMode switch { "xinput" => "XInput", "dualsense" => "DualSense", _ => "DirectInput" };
 
     private double _rumble = 1.0;
     public double Rumble
@@ -130,7 +143,43 @@ public sealed class ControllerVm : Observable
     private Brush _color = Brushes.Gray;
     public Brush Color { get => _color; private set => Set(ref _color, value); }
 
-    public bool IsSwitch1 => Serial.StartsWith("SW1-") && Kind == "pro";
+    public bool IsSwitch1 => IsManaged && Serial.StartsWith("SW1-") && Kind == "pro";
+
+    // False for a Switch 1-family controller SSIM lists but leaves alone until enabled.
+    private bool _isManaged = true;
+    public bool IsManaged
+    {
+        get => _isManaged;
+        private set
+        {
+            if (!Set(ref _isManaged, value)) return;
+            Raise(nameof(IsUnmanaged));
+            Raise(nameof(IsSwitch1));
+            Raise(nameof(ShortMode));
+            Raise(nameof(SlotText));
+        }
+    }
+    public bool IsUnmanaged => !IsManaged;
+
+    /// <summary>Shows a detected controller SSIM is not managing.</summary>
+    public void ApplyDetected(string model)
+    {
+        Applying = true;
+        try
+        {
+            IsManaged = false;
+            Name = model;
+            Model = model;
+            Transport = "bluetooth";
+            Battery = -1;
+            Kind = "pro";
+            Members = new();
+        }
+        finally
+        {
+            Applying = false;
+        }
+    }
 
     // Joy-Cons: "joycon" = one Joy-Con on its own, "joyconPair" = L + R together.
     private string _kind = "pro";
@@ -154,10 +203,12 @@ public sealed class ControllerVm : Observable
         Applying = true;
         try
         {
+            IsManaged = true;
             Name = (string?)c["name"] ?? "";
             Model = (string?)c["model"] ?? "";
             Transport = (string?)c["transport"] ?? "";
             Battery = (int?)c["battery"] ?? -1;
+            Charging = (bool?)c["charging"] ?? false;
             Slot = (int?)c["slot"] ?? 0;
             OutputMode = (string?)c["outputMode"] ?? "dinput";
             Rumble = (double?)c["rumble"] ?? 1.0;
@@ -184,27 +235,11 @@ public sealed class ControllerVm : Observable
     }
 }
 
-/// <summary>A Switch 1 controller that is present but left alone.</summary>
-public sealed class DetectedVm : Observable
-{
-    public string Id { get; }
-    public string Model { get; }
-    public string Address => Id.StartsWith("SW1-") ? Id[4..] : Id;
-    public bool CanEnable => true;
-
-    public DetectedVm(string id, string model)
-    {
-        Id = id;
-        Model = model;
-    }
-}
-
 public sealed class MainVm : Observable
 {
     private readonly EngineClient _engine;
 
     public ObservableCollection<ControllerVm> Controllers { get; } = new();
-    public ObservableCollection<DetectedVm> Detected { get; } = new();
 
     public MainVm(EngineClient engine) => _engine = engine;
 
@@ -224,16 +259,8 @@ public sealed class MainVm : Observable
     }
     public bool HasSelection => Selected != null;
 
-    private DetectedVm? _selectedDetected;
-    public DetectedVm? SelectedDetected
-    {
-        get => _selectedDetected;
-        set { if (Set(ref _selectedDetected, value)) Raise(nameof(HasDetectedSelection)); }
-    }
-    public bool HasDetectedSelection => SelectedDetected != null;
-
     public bool HasControllers => Controllers.Count > 0;
-    public bool HasDetected => Detected.Count > 0;
+    public IEnumerable<ControllerVm> Managed => Controllers.Where(c => c.IsManaged);
 
     // ---- Global settings ----
     private string _defaultMode = "dinput";
@@ -278,6 +305,13 @@ public sealed class MainVm : Observable
         set { if (Set(ref _combineJoyCons, value) && !Applying) _ = _engine.SetGlobalAsync("combineJoyCons", value); }
     }
 
+    private bool _swapFaceButtons;
+    public bool SwapFaceButtons
+    {
+        get => _swapFaceButtons;
+        set { if (Set(ref _swapFaceButtons, value) && !Applying) _ = _engine.SetGlobalAsync("swapFaceButtons", value); }
+    }
+
     private int _rumbleSafety = 20;
     public int RumbleSafety
     {
@@ -311,19 +345,23 @@ public sealed class MainVm : Observable
             }
             vm.Apply(node);
         }
-        foreach (var gone in Controllers.Where(c => !seen.Contains(c.Serial)).ToList()) Controllers.Remove(gone);
-        if (Selected == null || !Controllers.Contains(Selected)) Selected = Controllers.FirstOrDefault();
 
-        // Detected Switch 1 controllers that SSIM is not driving.
-        var detected = (status["detected"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
-            .Where(d => (bool?)d["managed"] != true).ToList();
-        var ids = detected.Select(d => (string?)d["id"] ?? "").ToHashSet();
-        foreach (var gone in Detected.Where(d => !ids.Contains(d.Id)).ToList()) Detected.Remove(gone);
-        foreach (var d in detected)
+        // Switch 1-family controllers SSIM is leaving alone: listed, greyed out.
+        foreach (var d in (status["detected"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
         {
             string id = (string?)d["id"] ?? "";
-            if (Detected.All(x => x.Id != id)) Detected.Add(new DetectedVm(id, (string?)d["model"] ?? "Switch controller"));
+            if ((bool?)d["managed"] == true || !seen.Add(id)) continue;
+            var vm = Controllers.FirstOrDefault(c => c.Serial == id);
+            if (vm == null)
+            {
+                vm = new ControllerVm(_engine, id);
+                Controllers.Add(vm);
+            }
+            vm.ApplyDetected((string?)d["model"] ?? "Switch controller");
         }
+
+        foreach (var gone in Controllers.Where(c => !seen.Contains(c.Serial)).ToList()) Controllers.Remove(gone);
+        if (Selected == null || !Controllers.Contains(Selected)) Selected = Controllers.FirstOrDefault();
 
         if (status["global"] is JsonObject g)
         {
@@ -337,6 +375,7 @@ public sealed class MainVm : Observable
                 DsuPort = (int?)g["dsuPort"] ?? 26760;
                 RumbleSafety = (int?)g["rumbleSafetySeconds"] ?? 20;
                 CombineJoyCons = (bool?)g["combineJoyCons"] ?? true;
+                SwapFaceButtons = (bool?)g["swapFaceButtons"] ?? false;
             }
             finally
             {
@@ -344,6 +383,5 @@ public sealed class MainVm : Observable
             }
         }
         Raise(nameof(HasControllers));
-        Raise(nameof(HasDetected));
     }
 }

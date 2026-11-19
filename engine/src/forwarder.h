@@ -22,13 +22,22 @@ public:
     void Stop();
 
     void Process(PadInput in);
+    // The next report's stick positions become the new centers.
+    void Recenter() { m_recenter = true; }
+
+    // Applies to every controller: swap A<->B and X<->Y so outputs follow the
+    // Nintendo labels (Xbox A = Nintendo A) instead of positions.
+    static void SetSwapFaceButtons(bool on) { s_swapFaceButtons = on; }
 
     void SetRumbleStrength(float s) { m_rumble.SetStrength(s); }
     void SetRumbleSafety(int seconds);
     void Pulse(float level, int ms) { m_rumble.Pulse(level, ms); }
     int Battery() const { return m_battery; }
+    bool Charging() const { return m_charging; }
 
 private:
+    static inline std::atomic<bool> s_swapFaceButtons{false};
+
     // Learns the gyro's zero-rate offset whenever the controller sits still.
     class GyroBias {
     public:
@@ -48,7 +57,10 @@ private:
     std::unique_ptr<OutputBackend> m_out;
     RumbleScheduler m_rumble;
     GyroBias m_bias;
+    std::atomic<bool> m_recenter{false};
+    float m_stickOffset[4] = {};  // lx, ly, rx, ry
     std::atomic<int> m_battery{-1};
+    std::atomic<bool> m_charging{false};
     int m_safetySeconds = 20;
     USHORT m_dinputPid = kVirtualPidSwitch2Pro;
 };

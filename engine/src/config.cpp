@@ -74,6 +74,7 @@ void Config::Load()
         m_global.dsuPort = std::clamp(g.value("dsuPort", 26760), 1024, 65535);
         m_global.rumbleSafetySeconds = std::clamp(g.value("rumbleSafetySeconds", 20), 0, 3600);
         m_global.combineJoyCons = g.value("combineJoyCons", true);
+        m_global.swapFaceButtons = g.value("swapFaceButtons", false);
         m_controllers.clear();
         json controllers = j.value("controllers", json::object());  // keep alive while iterating
         for (auto& [serial, c] : controllers.items()) {
@@ -104,7 +105,8 @@ void Config::SaveLocked()
                    {"dsu", m_global.dsu},
                    {"dsuPort", m_global.dsuPort},
                    {"rumbleSafetySeconds", m_global.rumbleSafetySeconds},
-                   {"combineJoyCons", m_global.combineJoyCons}};
+                   {"combineJoyCons", m_global.combineJoyCons},
+                   {"swapFaceButtons", m_global.swapFaceButtons}};
     json cs = json::object();
     for (auto& [serial, s] : m_controllers) {
         cs[serial] = {{"name", s.name},       {"outputMode", OutputModeKey(s.mode)}, {"slot", s.slot},

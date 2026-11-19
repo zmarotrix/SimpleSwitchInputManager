@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "hub.h"
+#include "forwarder.h"
 #include "joycon.h"
 #include "sw1.h"
 
@@ -48,6 +49,7 @@ json StatusJson()
                                {"slot", s.slot},
                                {"outputMode", OutputModeKey(s.mode)},
                                {"battery", s.battery},
+                               {"charging", s.charging},
                                {"rumble", s.rumble},
                                {"bodyColor", s.bodyColor},
                                {"kind", s.kind},
@@ -78,7 +80,8 @@ json StatusJson()
               {"dsu", g.dsu},
               {"dsuPort", g.dsuPort},
               {"rumbleSafetySeconds", g.rumbleSafetySeconds},
-              {"combineJoyCons", g.combineJoyCons}}}};
+              {"combineJoyCons", g.combineJoyCons},
+              {"swapFaceButtons", g.swapFaceButtons}}}};
 }
 
 bool WriteLine(Client& c, const json& j)
@@ -192,6 +195,10 @@ json HandleSetGlobal(const json& req)
     if (req.contains("rumbleSafetySeconds")) g.rumbleSafetySeconds = std::clamp(req["rumbleSafetySeconds"].get<int>(), 0, 3600);
     bool regroup = req.contains("combineJoyCons") && g.combineJoyCons != req["combineJoyCons"].get<bool>();
     if (req.contains("combineJoyCons")) g.combineJoyCons = req["combineJoyCons"].get<bool>();
+    if (req.contains("swapFaceButtons")) {
+        g.swapFaceButtons = req["swapFaceButtons"].get<bool>();
+        InputForwarder::SetSwapFaceButtons(g.swapFaceButtons);
+    }
     Config::Get().SetGlobal(g);
     if (regroup) std::thread([] { JoyCons::Rearrange(); }).detach();
     Hub::Changed();
@@ -215,6 +222,10 @@ json Handle(Client& c, const json& req)
     if (cmd == "setController") return HandleSetController(req);
     if (cmd == "identify") {
         bool live = Hub::With(req.at("serial").get<std::string>(), [](ControllerSession& cs) { cs.Identify(); });
+        return live ? json{{"ok", true}} : json{{"ok", false}, {"error", "controller not connected"}};
+    }
+    if (cmd == "recenter") {
+        bool live = Hub::With(req.at("serial").get<std::string>(), [](ControllerSession& cs) { cs.Recenter(); });
         return live ? json{{"ok", true}} : json{{"ok", false}, {"error", "controller not connected"}};
     }
     if (cmd == "setGlobal") return HandleSetGlobal(req);
